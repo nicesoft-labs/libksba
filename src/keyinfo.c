@@ -136,17 +136,17 @@ static const struct algo_table_s pk_algo_table[] = {
   { /* iso.member-body.ru.rans.cryptopro.gostR3410-2001 */
     "1.2.643.2.2.19",
     "\x2a\x85\x03\x02\x02\x13", 6,
-    1, PKALGO_GOST, "1.2.643.2.2.19", "q", "\x04", "-CD", "\x30\x06\x06" },
+    1, PKALGO_GOST, "gost", "*q", "\x04", "-CD", "\x30\x06\x06" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-256 */
     "1.2.643.7.1.1.1.1",
     "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
-    1, PKALGO_GOST, "1.2.643.7.1.1.1.1", "q", "\x04", "-CD", "\x30\x06\x06" },
+    1, PKALGO_GOST, "gost", "*q", "\x04", "-CD", "\x30\x06\x06" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-512 */
     "1.2.643.7.1.1.1.2",
     "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
-    1, PKALGO_GOST, "1.2.643.7.1.1.1.2", "q", "\x04", "-CD", "\x30\x06\x06" },
+    1, PKALGO_GOST, "gost", "*q", "\x04", "-CD", "\x30\x06\x06" },
 
   {NULL}
 };
@@ -301,32 +301,32 @@ static const struct algo_table_s sig_algo_table[] = {
   {  /* iso.member-body.ru.rans.cryptopro.3 */
     "1.2.643.2.2.3", /* gostR3411-94-with-gostR3410-2001 */
     "\x2A\x85\x03\x02\x02\x03", 6,
-    1, PKALGO_GOST, "1.2.643.2.2.3", "S", "\x82", NULL, NULL, "gostr3411" },
+    1, PKALGO_GOST, "gost", "*S", "\x82", NULL, NULL, "gostr3411" },
 
   { /* iso.member-body.ru.rans.cryptopro.gostR3410-2001 */
     "1.2.643.2.2.19",
     "\x2a\x85\x03\x02\x02\x13", 6,
-    1, PKALGO_GOST, "1.2.643.2.2.19", "S", "\x82", NULL, NULL, "gostr3411" },
+   1, PKALGO_GOST, "gost", "*S", "\x82", NULL, NULL, "gostr3411" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-256 */
     "1.2.643.7.1.1.1.1",
     "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
-    1, PKALGO_GOST, "1.2.643.7.1.1.1.1", "S", "\x82", NULL, NULL, "streebog256" },
+    1, PKALGO_GOST, "gost", "*S", "\x82", NULL, NULL, "streebog256" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-512 */
     "1.2.643.7.1.1.1.2",
     "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
-    1, PKALGO_GOST, "1.2.643.7.1.1.1.2", "S", "\x82", NULL, NULL, "streebog512" },
+    1, PKALGO_GOST, "gost", "*S", "\x82", NULL, NULL, "streebog512" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.signwithdigest.gost3410-12-256 */
     "1.2.643.7.1.1.3.2",
     "\x2a\x85\x03\x07\x01\x01\x03\x02", 8,
-    1, PKALGO_GOST, "1.2.643.7.1.1.3.2", "S", "\x82", NULL, NULL, "streebog256" },
+    1, PKALGO_GOST, "gost", "*S", "\x82", NULL, NULL, "streebog256" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.signwithdigest.gost3410-12-512 */
     "1.2.643.7.1.1.3.3",
     "\x2a\x85\x03\x07\x01\x01\x03\x03", 8,
-    1, PKALGO_GOST, "1.2.643.7.1.1.3.3", "S", "\x82", NULL, NULL, "streebog512" },
+    1, PKALGO_GOST, "gost", "*S", "\x82", NULL, NULL, "streebog512" },
 
   {NULL}
 };
@@ -344,17 +344,23 @@ static const struct algo_table_s enc_algo_table[] = {
   { /* iso.member-body.ru.rans.cryptopro.gostR3410-2001 */
    "1.2.643.2.2.19",
    "\x2a\x85\x03\x02\x02\x13", 6,
-   1, PKALGO_GOST, "1.2.643.2.2.19", "e", "\x80" },
+   1, PKALGO_GOST, "gost", "*--km-b--p-C?D-qu",
+   "\x30\x30\x04\x04\xa0\x06\xa0\x30\x06\x30\x06\x06\x03\x04\x04",
+   "-C?D", "\x30\x06\x06" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-256 */
    "1.2.643.7.1.1.1.1",
    "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
-   1, PKALGO_GOST, "1.2.643.7.1.1.1.1", "e", "\x80" },
+   1, PKALGO_GOST, "gost", "*--km-b--p-C?D-qu",
+   "\x30\x30\x04\x04\xa0\x06\xa0\x30\x06\x30\x06\x06\x03\x04\x04",
+   "-C?D", "\x30\x06\x06" },
 
   { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-512 */
    "1.2.643.7.1.1.1.2",
    "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
-   1, PKALGO_GOST, "1.2.643.7.1.1.1.2", "e", "\x80" },
+   1, PKALGO_GOST, "gost", "*--km-b--p-C?D-qu",
+   "\x30\x30\x04\x04\xa0\x06\xa0\x30\x06\x30\x06\x06\x03\x04\x04",
+   "-C?D", "\x30\x06\x06" },
   {NULL}
 };
 
@@ -1205,6 +1211,12 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
      better let the macro jump to a label */
   elem = pk_algo_table[algoidx].elem_string;
   ctrl = pk_algo_table[algoidx].ctrl_string;
+  int reverse_all = 0;
+  if (*elem == '*')
+    {
+      reverse_all = 1;
+      elem++;
+    }
   for (; *elem; ctrl++, elem++)
     {
       int is_int;
@@ -1238,10 +1250,37 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
           put_stringbuf (&sb, "(");
           tmp[0] = *elem; tmp[1] = 0;
           put_stringbuf_sexp (&sb, tmp);
-          put_stringbuf_mem_sexp (&sb, der, len);
-          der += len;
-          derlen -= len;
-          put_stringbuf (&sb, ")");
+          if (reverse_all && pk_algo_table[algoidx].pkalgo == PKALGO_GOST
+              && *elem == 'q')
+            {
+              unsigned char *xytmp = xtrymalloc (len + 1);
+              if (!xytmp)
+                {
+                  xfree (parm_oid);
+                  return gpg_error (GPG_ERR_ENOMEM);
+                }
+              xytmp[0] = 0x04;
+              _ksba_flip_ecc_key (der, len, xytmp + 1);
+              put_stringbuf_mem_sexp (&sb, xytmp, len + 1);
+              xfree (xytmp);
+              der += len;
+              derlen -= len;
+              put_stringbuf (&sb, ")");
+            }
+          else if (reverse_all)
+            {
+              put_stringbuf_mem_sexp_rs (&sb, der, len);
+              der += len;
+              derlen -= len;
+              put_stringbuf (&sb, ")");
+            }
+          else
+            {
+              put_stringbuf_mem_sexp (&sb, der, len);
+              der += len;
+              derlen -= len;
+              put_stringbuf (&sb, ")");
+            }
         }
     }
   put_stringbuf (&sb, "))");
@@ -1541,7 +1580,30 @@ _ksba_keyinfo_from_sexp (ksba_const_sexp_t sexp, int algoinfomode,
   /* Add the bit string if we are not in algoinfomode.  */
   if (!algoinfomode)
     {
-      if (*parmdesc == 'q' && !parmdesc[1])
+      if (pkalgo == PKALGO_GOST && *parmdesc == 'q' && !parmdesc[1])
+        {
+          for (i=0; i < parmidx; i++)
+            if (parm[i].namelen == 1 && parm[i].name[0] == 'q')
+              {
+                const unsigned char *p = parm[i].value;
+                size_t l = parm[i].valuelen;
+                if (l && p[0] == 0x04)
+                  {
+                    p++; l--;
+                  }
+                unsigned char *tmp = xtrymalloc (l);
+                if (!tmp)
+                  {
+                    err = gpg_error_from_syserror (); 
+                    goto leave;
+                  }
+                _ksba_flip_ecc_key (p, l, tmp);
+                _ksba_der_add_bts (dbld, tmp, l, 0);
+                xfree (tmp);
+                break;
+              }
+        }
+      else if (*parmdesc == 'q' && !parmdesc[1])
         {
           /* This is ECC - Q is directly written as a bit string.  */
           for (i=0; i < parmidx; i++)
@@ -1842,6 +1904,12 @@ cryptval_to_sexp (int mode, const unsigned char *der, size_t derlen,
     {
       elem = algo_table[algoidx].elem_string;
       ctrl = algo_table[algoidx].ctrl_string;
+      int reverse_all = 0;
+      if (*elem == '*')
+        {
+          reverse_all = 1;
+          elem++;
+        }
       for (; *elem; ctrl++, elem++)
         {
           int is_int;
@@ -1862,16 +1930,34 @@ cryptval_to_sexp (int mode, const unsigned char *der, size_t derlen,
               TLV_LENGTH (der);
             }
           if (is_int && *elem != '-')
-            { /* take this integer */
+            { 
               char tmp[2];
 
-              put_stringbuf (&sb, "(");
               tmp[0] = *elem; tmp[1] = 0;
-              put_stringbuf_sexp (&sb, tmp);
-              put_stringbuf_mem_sexp (&sb, der, len);
-              der += len;
-              derlen -= len;
-              put_stringbuf (&sb, ")");
+              if (reverse_all && algo_table[algoidx].pkalgo == PKALGO_GOST
+                  && *elem == 'S')
+                {
+                  put_stringbuf (&sb, "(1:r");
+                  put_stringbuf_mem_sexp_rs (&sb, der + len/2, len/2);
+                  put_stringbuf (&sb, ")");
+                  put_stringbuf (&sb, "(1:s");
+                  put_stringbuf_mem_sexp_rs (&sb, der, len/2);
+                  put_stringbuf (&sb, ")");
+                  der += len;
+                  derlen -= len;
+                }
+              else
+                {
+                  put_stringbuf (&sb, "(");
+                  put_stringbuf_sexp (&sb, tmp);
+                  if (reverse_all)
+                    put_stringbuf_mem_sexp_rs (&sb, der, len);
+                  else
+                    put_stringbuf_mem_sexp (&sb, der, len);
+                  der += len;
+                  derlen -= len;
+                  put_stringbuf (&sb, ")");
+                }
             }
         }
     }
