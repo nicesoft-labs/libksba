@@ -32,6 +32,7 @@
 #define CMS_H 1
 
 #include "ksba.h"
+#include "keyinfo.h"
 
 #ifndef HAVE_TYPEDEFD_ASNNODE
 typedef struct asn_node_struct *AsnNode;  /* FIXME: should not go here */
