@@ -36,6 +36,7 @@
 #include <errno.h>
 
 #include "util.h"
+#include "stringbuf.h"
 
 static void *(*alloc_func)(size_t n) = malloc;
 static void *(*realloc_func)(void *p, size_t n) = realloc;
@@ -306,4 +307,48 @@ _ksba_ascii_memcasecmp (const void *a_arg, const void *b_arg, size_t n)
         return *a == *b? 0 : (ascii_toupper (*a) - ascii_toupper (*b));
     }
   return 0;
+}
+
+/* Put memory in reverse byte order into a string buffer.  */
+void
+put_stringbuf_mem_rs (struct stringbuf *sb, const unsigned char *buf, size_t n)
+{
+  size_t i;
+  char *p;
+
+  if (sb->out_of_core)
+    return;
+
+  if (sb->len + n >= sb->size)
+    {
+      sb->size += n + 100;
+      p = xtryrealloc (sb->buf, sb->size + 1);
+      if (!p)
+        {
+          sb->out_of_core = errno ? errno : ENOMEM;
+          return;
+        }
+      sb->buf = p;
+    }
+
+  p = sb->buf + sb->len;
+  for (i = 0; i < n; i++)
+    p[i] = buf[n - 1 - i];
+  sb->len += n;
+}
+
+
+/* Helper for GOST: convert little-endian encoded (x||y) point to
+   big-endian representation.  LEN must be even and IN must not include
+   the optional uncompressed point prefix.  */
+void
+_ksba_flip_ecc_key (const unsigned char *in, size_t len, unsigned char *out)
+{
+  size_t n = len / 2;
+  size_t i;
+
+  for (i = 0; i < n; i++)
+    out[i] = in[n - 1 - i];
+  for (i = 0; i < n; i++)
+    out[n + i] = in[len - 1 - i];
 }
