@@ -123,5 +123,5 @@ KSBA_0.9 {
 KSBA_PRIVATE_TESTS {
    global:
      _ksba_keyinfo_from_sexp;  _ksba_keyinfo_to_sexp;
-
+     _ksba_test_parse_encrypted_content_info;
 } KSBA_0.9;
