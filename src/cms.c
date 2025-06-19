@@ -1432,10 +1432,10 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
   ksba_sexp_t string = NULL;
   struct value_tree_s *vt;
   char *keyencralgo = NULL; /* Key encryption algo.  */
-  char *parm = NULL;        /* Helper to get the parms of kencralgo.  */
-  size_t parmlen;
-  char *parm2 = NULL;
-  size_t parm2len;
+  struct algorithm_param_s *parm = NULL; /* Params of keyencralgo.  */
+  int parmcount = 0;
+  unsigned char *parm2 = NULL;
+  size_t parm2len = 0;
   char *parm3 = NULL;
   size_t parm3len;
   char *keywrapalgo = NULL; /* Key wrap algo.  */
@@ -1502,17 +1502,39 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
         }
       err = _ksba_parse_algorithm_identifier2 (vt->image + n->off,
                                                n->nhdr + n->len, NULL,
-                                               &keyencralgo, &parm, &parmlen);
+                                               &keyencralgo, &parm, &parmcount);
       if (err)
         goto leave;
-      if (!parm)
+      if (!parm || parmcount < 1)
         {
           err = gpg_error (GPG_ERR_INV_KEYINFO);
           goto leave;
         }
-      err = _ksba_parse_algorithm_identifier (parm, parmlen,NULL, &keywrapalgo);
-      if (err)
-        goto leave;
+      if (parm[0].tag != TYPE_OBJECT_ID)
+        {
+          err = gpg_error (GPG_ERR_INV_KEYINFO);
+          goto leave;
+        }
+      keywrapalgo = ksba_oid_to_str (parm[0].value, parm[0].length);
+      if (!keywrapalgo)
+        {
+          err = gpg_error (GPG_ERR_ENOMEM);
+          goto leave;
+        }
+      if (parmcount > 1)
+        {
+          parm2len = parm[1].length;
+          parm2 = xtrymalloc (parm2len);
+          if (!parm2)
+            {
+              err = gpg_error (GPG_ERR_ENOMEM);
+              goto leave;
+            }
+          memcpy (parm2, parm[1].value, parm2len);
+        }
+      release_algorithm_params (parm, parmcount);
+      parm = NULL;
+      parmcount = 0;
 
       /* gpgrt_log_debug ("%s: keyencralgo='%s'\n", __func__, keyencralgo); */
       /* gpgrt_log_debug ("%s: keywrapalgo='%s'\n", __func__, keywrapalgo); */
@@ -1547,7 +1569,7 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
         }
       err = _ksba_parse_algorithm_identifier2 (vt->image + n->off,
                                                n->nhdr + n->len, NULL,
-                                               &keyencralgo, &parm, &parmlen);
+                                               &keyencralgo, &parm, &parmcount);
       if (err)
         goto leave;
       if (strcmp (keyencralgo, "1.2.840.113549.1.9.16.3.9"))
@@ -1556,16 +1578,36 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
           err = gpg_error (GPG_ERR_INV_CMS_OBJ);
           goto leave;
         }
-      if (!parm)
+      if (!parm || parmcount < 1)
         {
           err = gpg_error (GPG_ERR_INV_KEYINFO);
           goto leave;
         }
-      /* gpgrt_log_printhex (parm, parmlen, "parms"); */
-      err = _ksba_parse_algorithm_identifier2 (parm, parmlen, NULL,
-                                               &keywrapalgo, &parm2, &parm2len);
-      if (err)
-        goto leave;
+      if (parm[0].tag != TYPE_OBJECT_ID)
+        {
+          err = gpg_error (GPG_ERR_INV_KEYINFO);
+          goto leave;
+        }
+      keywrapalgo = ksba_oid_to_str (parm[0].value, parm[0].length);
+      if (!keywrapalgo)
+        {
+          err = gpg_error (GPG_ERR_ENOMEM);
+          goto leave;
+        }
+      if (parmcount > 1)
+        {
+          parm2len = parm[1].length;
+          parm2 = xtrymalloc (parm2len);
+          if (!parm2)
+            {
+              err = gpg_error (GPG_ERR_ENOMEM);
+              goto leave;
+            }
+          memcpy (parm2, parm[1].value, parm2len);
+        }
+      release_algorithm_params (parm, parmcount);
+      parm = NULL;
+      parmcount = 0;
 
       /* gpgrt_log_debug ("%s: keywrapalgo='%s'\n", __func__, keywrapalgo); */
       /* gpgrt_log_printhex (parm2, parm2len, "parm:"); */
@@ -1642,7 +1684,7 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
   xfree (keyencralgo);
   xfree (keywrapalgo);
   xfree (keyderivealgo);
-  xfree (parm);
+  release_algorithm_params (parm, parmcount);
   xfree (parm2);
   xfree (parm3);
   if (err)
@@ -2445,8 +2487,8 @@ struct algorithm_param_s algo_params_oid = {
       return err;
     }
     
-    static const parsed_values_t *
-    find_value (const char *name, const parsed_values_t *values, int count)
+static const parsed_values_t *
+find_value (const char *name, const parsed_values_t *values, int count)
     {
       for (int i = 0; i < count; i++)
         if (0 == strcmp (values[i].name, name))
@@ -2903,6 +2945,20 @@ cleanup:
     return err;
 }
 
+/* Helper for GOST: convert little-endian encoded (x||y) point to
+   big-endian representation.  LEN must be even and IN must not
+   include the optional uncompressed point prefix.  */
+static void
+_ksba_flip_ecc_key (const unsigned char *in, size_t len, unsigned char *out)
+{
+  size_t n = len / 2;
+  size_t i;
+
+  for (i = 0; i < n; i++)
+    out[i] = in[n - 1 - i];
+  for (i = 0; i < n; i++)
+    out[n + i] = in[len - 1 - i];
+}
 
 
 
