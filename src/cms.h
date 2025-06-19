@@ -177,6 +177,16 @@ gpg_error_t _ksba_cms_parse_signed_data_part_2 (ksba_cms_t cms);
 gpg_error_t _ksba_cms_parse_enveloped_data_part_1 (ksba_cms_t cms);
 gpg_error_t _ksba_cms_parse_enveloped_data_part_2 (ksba_cms_t cms);
 
+#ifdef KSBA_TESTING
+gpg_error_t _ksba_test_parse_encrypted_content_info
+  (ksba_reader_t reader,
+   unsigned long *r_len, int *r_ndef,
+   char **r_cont_oid, char **r_algo_oid,
+   struct algorithm_param_s **r_algo_parm,
+   int *r_algo_parmcount,
+   int *r_algo_parmtype,
+   int *has_content) _KSBA_VISIBILITY_DEFAULT;
+#endif
 
 
 #endif /*CMS_H*/
