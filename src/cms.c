@@ -67,9 +67,6 @@ static gpg_error_t ct_build_enveloped_data (ksba_cms_t cms);
 static gpg_error_t ct_build_digested_data (ksba_cms_t cms);
 static gpg_error_t ct_build_encrypted_data (ksba_cms_t cms);
 
-static void _ksba_flip_ecc_key(const unsigned char *in, size_t len, unsigned char *out);
-
-
 static struct {
   const char *oid;
   ksba_content_type_t ct;
@@ -2962,20 +2959,6 @@ cleanup:
     return err;
 }
 
-/* Helper for GOST: convert little-endian encoded (x||y) point to
-   big-endian representation.  LEN must be even and IN must not
-   include the optional uncompressed point prefix.  */
-static void
-_ksba_flip_ecc_key(const unsigned char *in, size_t len, unsigned char *out)
-{
-  size_t n = len / 2;
-  size_t i;
-
-  for (i = 0; i < n; i++)
-    out[i] = in[n - 1 - i];
-  for (i = 0; i < n; i++)
-    out[n + i] = in[len - 1 - i];
-}
 
 
 
