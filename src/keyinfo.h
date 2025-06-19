@@ -88,6 +88,10 @@ gpg_error_t _ksba_encval_kari_to_sexp (const unsigned char *der, size_t derlen,
                                        const void *enckey, size_t enckeylen,
                                        ksba_sexp_t *r_string);
 
+gpg_error_t _ksba_sigval_from_sexp (ksba_const_sexp_t sexp,
+                                    unsigned char **r_der,
+                                    size_t *r_derlen);
+
 int _ksba_node_with_oid_to_digest_algo (const unsigned char *image,
                                         AsnNode node);
 
