@@ -327,11 +327,10 @@ parse_encrypted_content_info (ksba_reader_t reader,
   err = read_buffer (reader, tmpbuf+ti.nhdr, ti.length);
   if (err)
     return err;
-  err = _ksba_parse_algorithm_identifier3 (tmpbuf, ti.nhdr+ti.length,
-                                           0x30,
+  err = _ksba_parse_algorithm_identifier2 (tmpbuf, ti.nhdr+ti.length,
                                            &nread, &algo_oid,
-                                           &algo_parm, &algo_parmcount,
-                                           &algo_parmtype);
+                                           &algo_parm, &algo_parmcount);
+  algo_parmtype = TYPE_SEQUENCE; /* caller may inspect */
   if (err)
     return err;
   assert (nread <= ti.nhdr + ti.length);
