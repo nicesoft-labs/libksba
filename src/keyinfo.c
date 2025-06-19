@@ -849,7 +849,7 @@ _ksba_parse_algorithm_identifier2 (const unsigned char *der, size_t derlen,
 {
   return _ksba_parse_algorithm_identifier3 (der, derlen, 0x30,
                                             r_nread, r_oid,
-                                            r_parm, r_parmlen, NULL);
+                                            r_parm, r_parmcount, NULL);
 }
 
 
