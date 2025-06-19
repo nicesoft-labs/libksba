@@ -125,6 +125,24 @@ create_and_run_decoder (ksba_reader_t reader, const char *elem_name,
   return err;
 }
 
+#ifdef KSBA_TESTING
+/* Test wrapper to access the internal function.  */
+gpg_error_t
+_ksba_test_parse_encrypted_content_info (ksba_reader_t reader,
+                                         unsigned long *r_len, int *r_ndef,
+                                         char **r_cont_oid, char **r_algo_oid,
+                                         struct algorithm_param_s **r_algo_parm,
+                                         int *r_algo_parmcount,
+                                         int *r_algo_parmtype,
+                                         int *has_content)
+{
+  return parse_encrypted_content_info (reader, r_len, r_ndef,
+                                       r_cont_oid, r_algo_oid,
+                                       r_algo_parm, r_algo_parmcount,
+                                       r_algo_parmtype, has_content);
+}
+#endif /*KSBA_TESTING*/
+
 
 
 /* Parse this structure and return the oid of the content.  The read
