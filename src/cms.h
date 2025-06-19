@@ -148,6 +148,7 @@ struct ksba_cms_s {
   int inner_cont_ndef;
   int detached_data; /* no actual data */
   char *encr_algo_oid;
+  char *encr_algo_sbox_oid;
   char *encr_iv;
   size_t encr_ivlen;
 
