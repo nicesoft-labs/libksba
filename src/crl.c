@@ -884,10 +884,27 @@ parse_to_next_update (ksba_crl_t crl)
 
   xfree (crl->algo.oid); crl->algo.oid = NULL;
   xfree (crl->algo.parm); crl->algo.parm = NULL;
+  struct algorithm_param_s *algo_parm = NULL;
+  int algo_parmcount = 0;
   err = _ksba_parse_algorithm_identifier2 (tmpbuf, ti.nhdr+ti.length, &nread,
                                            &crl->algo.oid,
-                                           &crl->algo.parm,
-                                           &crl->algo.parmlen);
+                                           &algo_parm, &algo_parmcount);
+  if (!err)
+	{
+	  if (algo_parmcount > 0)
+		{
+		  if (algo_parm[0].tag == TYPE_OCTET_STRING &&
+			  algo_parm[0].class == CLASS_UNIVERSAL &&
+			  !algo_parm[0].constructed)
+			{
+			  crl->algo.parm = algo_parm[0].value;
+			  algo_parm[0].value = NULL;
+			  crl->algo.parmlen = algo_parm[0].length;
+			}
+		}
+	}
+  release_algorithm_params (algo_parm, algo_parmcount);
+
   if (err)
     return err;
   assert (nread <= ti.nhdr + ti.length);
