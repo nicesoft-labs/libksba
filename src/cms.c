@@ -2149,192 +2149,179 @@ typedef struct {
  *
  * Note that IDX is only used for consistency checks.
  */
+
 gpg_error_t
 ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
 {
-  gpg_error_t err;
-  unsigned long n, namelen;
-  struct sig_val_s *sv, **sv_tail;
-  const unsigned char *s, *endp, *name;
-  int ecc;  /* True for ECC algos.  */
-  int i;
-  gpg_error_t err = 0;
+    gpg_error_t err = 0;
+    unsigned long n;
+    struct sig_val_s *sv, **sv_tail;
+    const unsigned char *s, *endp;
+    const unsigned char *name;
+    unsigned long namelen;
+    int i, ecc;
 
-  if (!cms)
-    return gpg_error (GPG_ERR_INV_VALUE);
-  if (idx < 0)
-    return gpg_error (GPG_ERR_INV_INDEX); /* only one signer for now */
+    if (!cms)
+        return gpg_error (GPG_ERR_INV_VALUE);
+    if (idx < 0)
+        return gpg_error (GPG_ERR_INV_INDEX);
 
-  /* log_sexp ("sigval:", sigval); */
-  s = sigval;
-  if (*s != '(')
-    return gpg_error (GPG_ERR_INV_SEXP);
-  s++;
+    s = sigval;
+    if (*s != '(')
+        return gpg_error (GPG_ERR_INV_SEXP);
+    s++;
 
-  for (i=0, sv_tail=&cms->sig_val; *sv_tail; sv_tail=&(*sv_tail)->next, i++)
-    ;
-  if (i != idx)
-    return gpg_error (GPG_ERR_INV_INDEX);
+    /* locate insertion point */
+    for (i = 0, sv_tail = &cms->sig_val; *sv_tail; sv_tail = &(*sv_tail)->next, i++)
+        ;
+    if (i != idx)
+        return gpg_error (GPG_ERR_INV_INDEX);
 
-  if (!(n = snext (&s)))
-    return gpg_error (GPG_ERR_INV_SEXP);
-  if (!smatch (&s, 7, "sig-val"))
-    return gpg_error (GPG_ERR_UNKNOWN_SEXP);
-  if (*s != '(')
-    return gpg_error (digitp (s)? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
-  s++;
+    /* expect ( <len> sig-val ... ) */
+    if (!(n = snext (&s)))
+        return gpg_error (GPG_ERR_INV_SEXP);
+    if (!smatch (&s, n, "sig-val"))
+        return gpg_error (GPG_ERR_UNKNOWN_SEXP);
+    s += n;
+    if (*s != '(')
+        return gpg_error (digitp (s) ? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
+    s++;
 
-  /* Break out the algorithm ID. */
-  if (!(n = snext (&s)))
-    return gpg_error (GPG_ERR_INV_SEXP);
+    /* Break out the algorithm ID. */
+    if (!(n = snext (&s)))
+        return gpg_error (GPG_ERR_INV_SEXP);
 
-  sv = xtrycalloc (1, sizeof *sv);
-  if (!sv)
-    return gpg_error (GPG_ERR_ENOMEM);
+    sv = xtrycalloc (1, sizeof *sv);
+    if (!sv)
+        return gpg_error (GPG_ERR_ENOMEM);
 
-  if (n==3 && s[0] == 'r' && s[1] == 's' && s[2] == 'a')
+    /* parse algorithm name and parameters */
     {
-      sv->algo = xtrystrdup ("1.2.840.113549.1.1.1"); /* rsa */
-      if (!sv->algo)
-        {
-          xfree (sv);
-          return gpg_error (GPG_ERR_ENOMEM);
-        }
-    }
-  else if (n==5 && !memcmp (s, "ecdsa", 5))
-    {
-      /* Use a placeholder for later fixup.  */
-      sv->algo = xtrystrdup ("ecdsa");
-      if (!sv->algo)
-        {
-          xfree (sv);
-          return gpg_error (GPG_ERR_ENOMEM);
-        }
-    }
-  else
-    {
-      sv->algo = xtrymalloc (n+1);
-      if (!sv->algo)
-        {
-          xfree (sv);
-          return gpg_error (GPG_ERR_ENOMEM);
-        }
-      memcpy (sv->algo, s, n);
-      sv->algo[n] = 0;
-    }
-  s += n;
+        parsed_values_t values[5];
+        memset (values, 0, sizeof (values));
 
-  ecc = (!strcmp (sv->algo, "ecdsa")                  /* placeholder */
-         || !strcmp (sv->algo, "1.2.840.10045.4.3.2") /* ecdsa-with-SHA256 */
-         || !strcmp (sv->algo, "1.2.840.10045.4.3.3") /* ecdsa-with-SHA384 */
-         || !strcmp (sv->algo, "1.2.840.10045.4.3.4") /* ecdsa-with-SHA512 */
-         );
-
-  xfree (sv->value); sv->value = NULL;
-  xfree (sv->ecc.r); sv->ecc.r = NULL;
-
-  while (*s == '(')
-    {
-      s++;
-      n = strtoul (s, (char**)&endp, 10);
-      s = endp;
-      if (!n || *s != ':')
+        if (smatch (&s, n, "rsa"))
         {
-          err = gpg_error (GPG_ERR_INV_SEXP);
-          goto leave;
-        }
-      s++;
-      name = s;
-      namelen = n;
-      s += n;
-
-      if (!digitp(s))
-        {
-          err = gpg_error (GPG_ERR_UNKNOWN_SEXP); /* or invalid sexp */
-          goto leave;
-        }
-      n = strtoul (s, (char**)&endp, 10);
-      s = endp;
-      if (!n || *s != ':')
-        {
-          err = gpg_error (GPG_ERR_INV_SEXP);
-          goto leave;
-        }
-      s++;
-
-      if (namelen == 1 && *name == 's')
-        {
-          /* Store the "main" parameter into value. */
-          xfree (sv->value);
-          sv->value = xtrymalloc (n);
-          if (!sv->value)
+            /* RSA: read generic values (e.g., s, r) */
+            err = read_values (&s, NULL, 0, values);
+            if (err)
+                goto cleanup;
+            sv->algo = xtrystrdup ("1.2.840.113549.1.1.1");
+            if (!sv->algo)
             {
-              err = gpg_error_from_syserror ();
-              goto leave;
+                err = gpg_error_from_syserror ();
+                goto cleanup;
             }
-          memcpy (sv->value, s, n);
-          sv->valuelen = n;
+            /* pack only first value into main octet string */
+            err = pack_values (values, 0, &sv->value, &sv->valuelen);
+            if (err)
+                goto cleanup;
         }
-      else if (ecc && namelen == 1 && *name == 'r')
+        else if (smatch (&s, n, "ecdsa") || smatch (&s, n, "gost"))
         {
-          xfree (sv->ecc.r);
-          sv->ecc.r = xtrymalloc (n);
-          if (!sv->ecc.r)
+            /* EC/GOST: parameters s, r, algo, curve, digest */
+            const char *const ec_params[] = {"s", "r", "algo", "curve", "digest"};
+            err = read_values (&s, ec_params, 5, values);
+            if (err)
+                goto cleanup;
+
+            /* determine algorithm OID if not given */
+            if (!values[2].value)
             {
-              err = gpg_error_from_syserror ();
-              goto leave;
+                const char *algo_oid = NULL;
+                /* pick digest list if missing */
+                if (!values[4].value || !values[4].len)
+                {
+                    values[4].value = ksba_cms_get_digest_algo_list (cms, idx);
+                    values[4].len = strlen ((char*)values[4].value);
+                }
+                if (values[3].value && values[3].len)
+                    algo_oid = curve_oid_to_key_algo (values[3].value, values[3].len,
+                                                    values[4].value, values[4].len);
+                else
+                    algo_oid = digest_algo_to_key_algo (values[4].value, values[4].len);
+
+                if (!algo_oid)
+                {
+                    err = gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM);
+                    goto cleanup;
+                }
+                sv->algo = xtrystrdup (algo_oid);
+                if (!sv->algo)
+                {
+                    err = gpg_error_from_syserror ();
+                    goto cleanup;
+                }
             }
-          memcpy (sv->ecc.r, s, n);
-          sv->ecc.rlen = n;
+            else
+            {
+                sv->algo = xtrymalloc (values[2].len + 1);
+                if (!sv->algo)
+                {
+                    err = gpg_error_from_syserror ();
+                    goto cleanup;
+                }
+                memcpy (sv->algo, values[2].value, values[2].len);
+                sv->algo[values[2].len] = '\0';
+            }
+            /* pack both s and r into value chain */
+            err = pack_values (values, 2 /* s, r */, &sv->value, &sv->valuelen);
+            if (err)
+                goto cleanup;
         }
-      /* (We ignore all other parameter of the (key value) form.)  */
-
-      s += n;
-      if ( *s != ')')
+        else
         {
-          err = gpg_error (GPG_ERR_UNKNOWN_SEXP); /* or invalid sexp */
-          goto leave;
+            /* unknown algorithm: copy raw string */
+            sv->algo = xtrymalloc (n + 1);
+            if (!sv->algo)
+            {
+                err = gpg_error (GPG_ERR_ENOMEM);
+                goto cleanup;
+            }
+            memcpy (sv->algo, s, n);
+            sv->algo[n] = '\0';
+            s += n;
         }
-      s++;
     }
 
-  /* Expect two closing parenthesis.  */
-  if (*s != ')')
+    /* determine ECC flag for later error checking */
+    ecc = (!strcmp (sv->algo, "ecdsa")
+           || !strcmp (sv->algo, "1.2.840.10045.4.3.2")
+           || !strcmp (sv->algo, "1.2.840.10045.4.3.3")
+           || !strcmp (sv->algo, "1.2.840.10045.4.3.4"));
+
+    /* finish parsing: expect closing parens */
+    if (*s != ')')
     {
-      err = gpg_error (digitp (s)? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
-      goto leave;
+        err = gpg_error (digitp (s) ? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
+        goto cleanup;
     }
-  s++;
-  if ( *s != ')')
+    s++;
+    if (*s != ')')
     {
-      err = gpg_error (GPG_ERR_INV_SEXP);
-      goto leave;
+        err = gpg_error (GPG_ERR_INV_SEXP);
+        goto cleanup;
     }
 
-  /* Check that we have all required data.  */
-  if (!sv->value)
+    /* sanity checks */
+    if (!sv->value || (ecc && (!sv->ecc.r || !sv->ecc.rlen)))
     {
-      err = gpg_error (GPG_ERR_INV_SEXP);
-      goto leave;
-    }
-  if (ecc && (!sv->ecc.r || !sv->ecc.rlen))
-    {
-      err = gpg_error (GPG_ERR_INV_SEXP);
-      goto leave;
+        err = gpg_error (GPG_ERR_INV_SEXP);
+        goto cleanup;
     }
 
-  *sv_tail = sv;
-  return 0; /* Success.  */
+    /* link into list */
+    *sv_tail = sv;
+    return 0;
 
- leave:  /* Note: This is an error-only label.  */
-  xfree (sv->value);
-  xfree (sv->algo);
-  xfree (sv->ecc.r);
-  xfree (sv);
-  return err;
+cleanup:
+    xfree (sv->value);
+    xfree (sv->algo);
+    xfree (sv->ecc.r);
+    xfree (sv);
+    return err;
 }
-
-
+ 
 /* Set the content encryption algorithm to OID and optionally set the
    initialization vector to IV */
 gpg_error_t
@@ -2350,6 +2337,21 @@ ksba_cms_set_content_enc_algo (ksba_cms_t cms,
   cms->encr_ivlen = 0;
 
   cms->encr_algo_oid = xtrystrdup (oid);
+  if (0 == strncmp (oid, "1.2.643.2.2.31.", 15) ||
+      0 == strcmp (oid, "1.2.643.7.1.2.5.1.1"))
+    {
+      /* GOST-28147 S-box. Set both the algo OID and the S-box OID. */
+      cms->encr_algo_oid = xtrystrdup ("1.2.643.2.2.21");
+      cms->encr_algo_sbox_oid = xtrystrdup (oid);
+    }
+  else
+    {
+      cms->encr_algo_oid = xtrystrdup (oid);
+      /* Clear the S-box if any. */
+      xfree (cms->encr_algo_sbox_oid);
+      cms->encr_algo_sbox_oid = NULL;
+    }
+
   if (!cms->encr_algo_oid)
     return gpg_error (GPG_ERR_ENOMEM);
 
@@ -2363,6 +2365,344 @@ ksba_cms_set_content_enc_algo (ksba_cms_t cms,
     }
   return 0;
 }
+
+struct algorithm_param_s algo_params_oid = {
+      .tag = TYPE_OBJECT_ID,
+      .class = CLASS_UNIVERSAL,
+      .constructed = 0
+    };
+    
+    static gpg_error_t
+    store_algorithm_id (AsnNode n, const unsigned char *algo,
+                        struct algorithm_param_s *algo_params,
+                        int algo_params_count)
+    {
+      ksba_writer_t param_wrt = NULL;
+      unsigned char *params = NULL;
+      size_t paramslen;
+      gpg_error_t err = 0;
+    
+      if (!algo)
+    	return gpg_error (GPG_ERR_MISSING_VALUE);
+    
+      if (!algo_params)
+        {
+          if (strcmp (algo, "1.2.643.2.2.19") == 0 ||
+              strcmp (algo, "1.2.643.7.1.1.1.1") == 0)
+            {
+              const unsigned char *oid1_str;
+              const unsigned char *oid2_str;
+              struct algorithm_param_s def_algo_params[2];
+              def_algo_params[0] = algo_params_oid;
+              def_algo_params[1] = algo_params_oid;
+    
+          	  if (strcmp (algo, "1.2.643.2.2.19") == 0)
+                {
+                  oid1_str = "1.2.643.2.2.35.1";
+                  oid2_str = "1.2.643.2.2.30.1";
+                }
+              else /* "1.2.643.7.1.1.1.1" */
+                {
+                  oid1_str = "1.2.643.7.1.2.1.1.1";
+                  oid2_str = "1.2.643.7.1.1.2.2";
+                }
+              err = ksba_oid_from_str (oid1_str, &def_algo_params[0].value,
+                                       &def_algo_params[0].length);
+              if (!err)
+                err = ksba_oid_from_str (oid2_str, &def_algo_params[1].value,
+                                         &def_algo_params[1].length);
+    
+              algo_params = def_algo_params;
+              algo_params_count = 2;
+            }
+        }
+    
+      if (err) return err;
+    
+      err = ksba_writer_new (&param_wrt);
+      if (!err)
+    	err = ksba_writer_set_mem (param_wrt, 512);
+      if (!err)
+    	err = _ksba_der_write_algorithm_identifier (param_wrt, algo,
+    												algo_params_count ?
+    												  algo_params : NULL,
+    												algo_params_count);
+      if (!err)
+    	{
+    	  params = ksba_writer_snatch_mem (param_wrt, &paramslen);
+    	  if (!params)
+    		err = gpg_error (GPG_ERR_ENOMEM);
+    	}
+      if (!err)
+    	{
+    	  n->type = TYPE_PRE_SEQUENCE;
+    	  err = _ksba_der_store_sequence (n, params + 2, paramslen - 2);
+    	}
+    
+      xfree (params);
+      ksba_writer_release (param_wrt);
+    
+      return err;
+    }
+    
+    static const parsed_values_t *
+    find_value (const char *name, const parsed_values_t *values, int count)
+    {
+      for (int i = 0; i < count; i++)
+        if (0 == strcmp (values[i].name, name))
+          return &(values[i]);
+    
+      return NULL;
+    }
+    
+    static gpg_error_t
+    transform_gost_values_to_cms (const parsed_values_t *values, int count,
+                                  struct enc_val_s *enc_val)
+    {
+      AsnNode root, n;
+      ksba_asn_tree_t cms_tree = NULL;
+      ksba_writer_t ekey_wrt = NULL;
+      unsigned char *ekey_buf = NULL;
+      size_t ekey_len;
+      unsigned char *tmp2 = NULL;
+      gpg_error_t err = 0;
+    
+      char *_sbox = NULL;
+      char *_digest_oid = NULL;
+      char *_curve = NULL;
+      char *_ukm = NULL;
+    
+      /* Required arguments */
+      const parsed_values_t *q = find_value ("q", values, count);
+      if (!q || !q->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *ukm = find_value ("ukm", values, count);
+      if (!ukm || !ukm->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *ciphertext = find_value ("s", values, count);
+      if (!ciphertext || !ciphertext->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *curve = find_value ("curve", values, count);
+      if (!curve || !curve->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *sbox = find_value ("sbox", values, count);
+      if (!sbox || !sbox->value) return gpg_error (GPG_ERR_INV_ARG);
+    
+      /* Optional arguments */
+      const parsed_values_t *algo = find_value ("algo", values, count);
+      const parsed_values_t *digest = find_value ("digest", values, count);
+    
+      if (ciphertext->len != 32 + 4 || ((q->len % 2) && *(q->value) != 0x04))
+    	return gpg_error (GPG_ERR_INV_VALUE);
+    
+      err = ksba_asn_create_tree ("cms", &cms_tree);
+      if (err) return err;
+    
+      root = _ksba_asn_expand_tree (cms_tree->parse_tree,
+    			  "CryptographicMessageSyntax.GostR3410-KeyTransport");
+    
+      /* Store the GOST-28147 256-bit key */
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.sessionEncryptedKey.encryptedKey");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+      err = _ksba_der_store_octet_string (n, ciphertext->value, 32);
+      if (err) goto exit;
+    
+      /* Store the 32-bit MAC */
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.sessionEncryptedKey.macKey");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+      err = _ksba_der_store_octet_string (n, ciphertext->value + 32, 4);
+      if (err) goto exit;
+    
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..encryptionParamSet");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+      _sbox = xtrymalloc (sbox->len + 1);
+      if (!_sbox)
+        {
+          err = gpg_error_from_syserror ();
+          goto exit;
+        }
+      memcpy (_sbox, sbox->value, sbox->len);
+      _sbox[sbox->len] = '\0';
+      err = _ksba_der_store_oid (n, _sbox);
+      if (err) goto exit;
+    
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..ephemeralPublicKey..algorithm");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+    
+      if (!enc_val->algo)
+        {
+          if (algo)
+            {
+              enc_val->algo = xtrymalloc (algo->len + 1);
+              if (!enc_val->algo)
+                {
+                  err = gpg_error_from_syserror ();
+                  goto exit;
+                }
+              memcpy (enc_val->algo, algo->value, algo->len);
+              enc_val->algo[algo->len] = '\0';
+            }
+          else
+            {
+              const char *algo_oid = curve_oid_to_key_algo (curve->value,
+                                                            curve->len,
+                                                            digest ?
+                                                              digest->value : NULL,
+                                                            digest ?
+                                                            digest->len : 0);
+              if (!algo_oid)
+                {
+                  err = gpg_error (GPG_ERR_UNKNOWN_ALGORITHM);
+                  goto exit;
+                }
+              enc_val->algo = xtrystrdup (algo_oid);
+              if (!enc_val->algo)
+                {
+                  err = gpg_error_from_syserror ();
+                  goto exit;
+                }
+            }
+        }
+    
+      const char *digest_oid = NULL;
+      if (digest && digest->value)
+        {
+          _digest_oid = xtrymalloc (digest->len + 1);
+          if (!_digest_oid)
+            {
+              err = gpg_error_from_syserror ();
+              goto exit;
+            }
+          memcpy (_digest_oid, digest->value, digest->len);
+          _digest_oid[digest->len] = '\0';
+          digest_oid = _digest_oid;
+        }
+      else
+        {
+          digest_oid = key_algo_to_digest_algo (enc_val->algo,
+                                                strlen (enc_val->algo));
+          if (!digest_oid)
+            {
+              err = gpg_error (GPG_ERR_UNKNOWN_ALGORITHM);
+              goto exit;
+            }
+        }
+    
+      struct algorithm_param_s pk_algo_params[2];
+    
+      _curve = xtrymalloc (curve->len + 1);
+      if (!_curve)
+        {
+          err = gpg_error_from_syserror ();
+          goto exit;
+        }
+      memcpy (_curve, curve->value, curve->len);
+      _curve[curve->len] = '\0';
+      pk_algo_params[0] = algo_params_oid;
+      err = ksba_oid_from_str (_curve, &pk_algo_params[0].value,
+                               &pk_algo_params[0].length);
+      if (err) goto exit;
+    
+      pk_algo_params[1] = algo_params_oid;
+      err = ksba_oid_from_str (digest_oid, &pk_algo_params[1].value,
+                               &pk_algo_params[1].length);
+      if (err) goto exit;
+    
+      err = store_algorithm_id (n, enc_val->algo, pk_algo_params, 2);
+      if (err) goto exit;
+    
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..ephemeralPublicKey..subjectPublicKey");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+    
+      err = ksba_writer_new (&ekey_wrt);
+      if (err) goto exit;
+    
+      err = ksba_writer_set_mem (ekey_wrt, 256); // bytes
+      if (err) goto exit;
+    
+      err = _ksba_ber_write_tl (ekey_wrt, TYPE_OCTET_STRING,
+    							CLASS_UNIVERSAL, 0,
+    							(q->len % 2) ? q->len - 1 : q->len);
+      if (err) goto exit;
+    
+      unsigned int ekey_offs = 0;
+      if (q->len % 2)
+    	ekey_offs = 1; /* Uncompressed point */
+    
+      tmp2 = _ksba_xmalloc (q->len - ekey_offs);
+      if (!tmp2)
+    	{
+    	  err = gpg_error (GPG_ERR_ENOMEM);
+    	  goto  exit;
+    	}
+      _ksba_flip_ecc_key (q->value + ekey_offs, q->len - ekey_offs, tmp2);
+    
+      err = ksba_writer_write (ekey_wrt, tmp2, q->len - ekey_offs);
+      if (err) goto exit;
+    
+      ekey_buf = ksba_writer_snatch_mem (ekey_wrt, &ekey_len);
+      if (!ekey_buf)
+    	{
+    	  err = gpg_error (GPG_ERR_ENOMEM);
+    	  goto exit;
+    	}
+    
+      err = _ksba_der_store_bit_string (n, ekey_buf, ekey_len * 8);
+      if (err) goto exit;
+    
+      /* Store the UKM */
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..ukm");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+    
+      _ukm = xtrymalloc (ukm->len);
+      if (!_ukm)
+        {
+          err = gpg_error_from_syserror ();
+          goto exit;
+        }
+      /* Put UKM in reverse byte order (LSB) */
+      for (int i = 0; i < ukm->len; i++)
+        _ukm[i] = ukm->value[ukm->len - 1 - i];
+      err = _ksba_der_store_octet_string (n, _ukm, ukm->len);
+    
+      if (err) goto exit;
+    
+      xfree (enc_val->value);
+      err = _ksba_der_encode_tree (root, &enc_val->value, &enc_val->valuelen);
+    
+     exit:
+      _ksba_asn_release_nodes (root);
+      xfree (ekey_buf);
+      ksba_writer_release (ekey_wrt);
+      ksba_asn_tree_release (cms_tree);
+      xfree (tmp2);
+      xfree (_sbox);
+      xfree (_curve);
+      xfree (_digest_oid);
+      xfree (_ukm);
+    
+      return err;
+    }
 
 
 /*
@@ -2385,159 +2725,182 @@ ksba_cms_set_content_enc_algo (ksba_cms_t cms,
 gpg_error_t
 ksba_cms_set_enc_val (ksba_cms_t cms, int idx, ksba_const_sexp_t encval)
 {
-  /*FIXME: This shares most code with ...set_sig_val */
-  struct certlist_s *cl;
-  const char *s, *endp, *name;
-  unsigned long n, namelen;
-  int ecdh = 0;   /* We expect ECC parameters.  */
+    gpg_error_t err = 0;
+    unsigned long n;
+    struct certlist_s *cl;
+    const unsigned char *s;
 
-  if (!cms)
-    return gpg_error (GPG_ERR_INV_VALUE);
-  if (idx < 0)
-    return gpg_error (GPG_ERR_INV_INDEX);
-  for (cl=cms->cert_list; cl && idx; cl = cl->next, idx--)
-    ;
-  if (!cl)
-    return gpg_error (GPG_ERR_INV_INDEX); /* No cert to store the value.  */
+    if (!cms)
+        return gpg_error (GPG_ERR_INV_VALUE);
+    if (idx < 0)
+        return gpg_error (GPG_ERR_INV_INDEX);
 
-  /* log_sexp ("encval", encval); */
-  s = encval;
-  if (*s != '(')
-    return gpg_error (GPG_ERR_INV_SEXP);
-  s++;
+    /* find certificate slot */
+    for (cl = cms->cert_list; cl && idx; cl = cl->next, idx--)
+        ;
+    if (!cl)
+        return gpg_error (GPG_ERR_INV_INDEX);
 
-  n = strtoul (s, (char**)&endp, 10);
-  s = endp;
-  if (!n || *s!=':')
-    return gpg_error (GPG_ERR_INV_SEXP); /* we don't allow empty lengths */
-  s++;
-  if (n != 7 || memcmp (s, "enc-val", 7))
-    return gpg_error (GPG_ERR_UNKNOWN_SEXP);
-  s += 7;
-  if (*s != '(')
-    return gpg_error (digitp (s)? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
-  s++;
-
-  /* break out the algorithm ID */
-  n = strtoul (s, (char**)&endp, 10);
-  s = endp;
-  if (!n || *s != ':')
-    return gpg_error (GPG_ERR_INV_SEXP); /* we don't allow empty lengths */
-  s++;
-  xfree (cl->enc_val.algo);
-  if (n==3 && !memcmp (s, "rsa", 3))
-    { /* kludge to allow "rsa" to be passed as algorithm name */
-      cl->enc_val.algo = xtrystrdup ("1.2.840.113549.1.1.1");
-      if (!cl->enc_val.algo)
-        return gpg_error (GPG_ERR_ENOMEM);
-    }
-  else if (n==4 && !memcmp (s, "ecdh", 4))
-    {
-      cl->enc_val.algo = xtrystrdup ("1.2.840.10045.2.1"); /* ecPublicKey */
-      if (!cl->enc_val.algo)
-        return gpg_error (GPG_ERR_ENOMEM);
-    }
-  else
-    {
-      cl->enc_val.algo = xtrymalloc (n+1);
-      if (!cl->enc_val.algo)
-        return gpg_error (GPG_ERR_ENOMEM);
-      memcpy (cl->enc_val.algo, s, n);
-      cl->enc_val.algo[n] = 0;
-    }
-  s += n;
-
-  ecdh = !strcmp (cl->enc_val.algo, "1.2.840.10045.2.1");
-
-  xfree (cl->enc_val.value);  cl->enc_val.value = NULL;
-  xfree (cl->enc_val.ecdh.e); cl->enc_val.ecdh.e = NULL;
-  xfree (cl->enc_val.ecdh.encr_algo); cl->enc_val.ecdh.encr_algo = NULL;
-  xfree (cl->enc_val.ecdh.wrap_algo); cl->enc_val.ecdh.wrap_algo = NULL;
-
-  while (*s == '(')
-    {
-      s++;
-      n = strtoul (s, (char**)&endp, 10);
-      s = endp;
-      if (!n || *s != ':')
+    s = encval;
+    if (*s != '(')
         return gpg_error (GPG_ERR_INV_SEXP);
-      s++;
-      name = s;
-      namelen = n;
-      s += n;
+    s++;
 
-      if (!digitp(s))
-        return gpg_error (GPG_ERR_UNKNOWN_SEXP); /* or invalid sexp */
-      n = strtoul (s, (char**)&endp, 10);
-      s = endp;
-      if (!n || *s != ':')
+    /* expect ( <len> enc-val */
+    if (!(n = snext (&s)))
         return gpg_error (GPG_ERR_INV_SEXP);
-      s++;
+    if (!smatch (&s, n, "enc-val"))
+        return gpg_error (GPG_ERR_UNKNOWN_SEXP);
+    s += n;
+    if (*s != '(')
+        return gpg_error (digitp(s) ? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
+    s++;
 
-      if (namelen == 1 && ((!ecdh && *name == 'a') || (ecdh && *name == 's')))
-        {
-          /* Store the "main" parameter into value. */
-          xfree (cl->enc_val.value);
-          cl->enc_val.value = xtrymalloc (n);
-          if (!cl->enc_val.value)
-            return gpg_error (GPG_ERR_ENOMEM);
-          memcpy (cl->enc_val.value, s, n);
-          cl->enc_val.valuelen = n;
-        }
-      else if (!ecdh)
-        ; /* Ignore all other parameters for RSA.  */
-      else if (namelen == 1 && *name == 'e')
-        {
-          xfree (cl->enc_val.ecdh.e);
-          cl->enc_val.ecdh.e = xtrymalloc (n);
-          if (!cl->enc_val.ecdh.e)
-            return gpg_error (GPG_ERR_ENOMEM);
-          memcpy (cl->enc_val.ecdh.e, s, n);
-          cl->enc_val.ecdh.elen = n;
-        }
-      else if (namelen == 9 && !memcmp (name, "encr-algo", 9))
-        {
-          xfree (cl->enc_val.ecdh.encr_algo);
-          cl->enc_val.ecdh.encr_algo = xtrymalloc (n+1);
-          if (!cl->enc_val.ecdh.encr_algo)
-            return gpg_error (GPG_ERR_ENOMEM);
-          memcpy (cl->enc_val.ecdh.encr_algo, s, n);
-          cl->enc_val.ecdh.encr_algo[n] = 0;
-        }
-      else if (namelen == 9 && !memcmp (name, "wrap-algo", 9))
-        {
-          xfree (cl->enc_val.ecdh.wrap_algo);
-          cl->enc_val.ecdh.wrap_algo = xtrymalloc (n+1);
-          if (!cl->enc_val.ecdh.wrap_algo)
-            return gpg_error (GPG_ERR_ENOMEM);
-          memcpy (cl->enc_val.ecdh.wrap_algo, s, n);
-          cl->enc_val.ecdh.wrap_algo[n] = 0;
-        }
-      /* (We ignore all other parameter of the (key value) form.)  */
+    /* read algorithm name */
+    if (!(n = snext(&s)))
+        return gpg_error (GPG_ERR_INV_SEXP);
 
-      s += n;
-      if ( *s != ')')
-        return gpg_error (GPG_ERR_UNKNOWN_SEXP); /* or invalid sexp */
-      s++;
+    /* reset previous
+     * cleanup old values
+     */
+    xfree (cl->enc_val.algo);
+    xfree (cl->enc_val.value);
+    xfree (cl->enc_val.ecdh.e);
+    xfree (cl->enc_val.ecdh.encr_algo);
+    xfree (cl->enc_val.ecdh.wrap_algo);
+    cl->enc_val.value = NULL;
+    cl->enc_val.ecdh.e = NULL;
+    cl->enc_val.ecdh.encr_algo = NULL;
+    cl->enc_val.ecdh.wrap_algo = NULL;
+
+    /* parse parameters */
+    parsed_values_t values[7];
+    memset (values, 0, sizeof(values));
+
+    if (smatch(&s, n, "rsa"))
+    {
+        err = read_values(&s, NULL, 0, values);
+        if (err)
+            goto cleanup;
+        cl->enc_val.algo = xtrystrdup("1.2.840.113549.1.1.1");
+        if (!cl->enc_val.algo)
+        {
+            err = gpg_error_from_syserror();
+            goto cleanup;
+        }
+        err = pack_values(values, 0, &cl->enc_val.value, &cl->enc_val.valuelen);
+        if (err)
+            goto cleanup;
     }
-  /* Expect two closing parenthesis.  */
-  if (*s != ')')
-    return gpg_error (digitp (s)? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
-  s++;
-  if ( *s != ')')
-    return gpg_error (GPG_ERR_INV_SEXP);
+    else if (smatch(&s, n, "ecdh"))
+    {
+        const char *const ec_params[] = {"a","s","e","encr-algo","wrap-algo"};
+        err = read_values(&s, ec_params, 5, values);
+        if (err)
+            goto cleanup;
+        cl->enc_val.algo = xtrystrdup("1.2.840.10045.2.1");
+        if (!cl->enc_val.algo)
+        {
+            err = gpg_error_from_syserror();
+            goto cleanup;
+        }
+        err = pack_values(values, 0, &cl->enc_val.value, &cl->enc_val.valuelen);
+        if (err)
+            goto cleanup;
+        /* unpack ECDH specific*/
+        if (values[2].value)
+        {
+            cl->enc_val.ecdh.e = xtrymalloc(values[2].len);
+            if (!cl->enc_val.ecdh.e)
+            {
+                err = gpg_error_from_syserror();
+                goto cleanup;
+            }
+            memcpy(cl->enc_val.ecdh.e, values[2].value, values[2].len);
+            cl->enc_val.ecdh.elen = values[2].len;
+        }
+        if (values[3].value)
+        {
+            cl->enc_val.ecdh.encr_algo = xtrymalloc(values[3].len+1);
+            if (!cl->enc_val.ecdh.encr_algo)
+            {
+                err = gpg_error_from_syserror();
+                goto cleanup;
+            }
+            memcpy(cl->enc_val.ecdh.encr_algo, values[3].value, values[3].len);
+            cl->enc_val.ecdh.encr_algo[values[3].len] = '\0';
+        }
+        if (values[4].value)
+        {
+            cl->enc_val.ecdh.wrap_algo = xtrymalloc(values[4].len+1);
+            if (!cl->enc_val.ecdh.wrap_algo)
+            {
+                err = gpg_error_from_syserror();
+                goto cleanup;
+            }
+            memcpy(cl->enc_val.ecdh.wrap_algo, values[4].value, values[4].len);
+            cl->enc_val.ecdh.wrap_algo[values[4].len] = '\0';
+        }
+    }
+    else if (smatch(&s, n, "gost"))
+    {
+        const char *const gost_params[] = {"q","ukm","s","algo","curve","digest","sbox"};
+        err = read_values(&s, gost_params, 7, values);
+        if (err)
+            goto cleanup;
+        err = transform_gost_values_to_cms(values, 7, &cl->enc_val);
+        if (err)
+            goto cleanup;
+    }
+    else
+    {
+        cl->enc_val.algo = xtrymalloc(n+1);
+        if (!cl->enc_val.algo)
+        {
+            err = gpg_error (GPG_ERR_ENOMEM);
+            goto cleanup;
+        }
+        memcpy(cl->enc_val.algo, s, n);
+        cl->enc_val.algo[n] = '\0';
+        s += n;
+    }
 
-  /* Check that we have all required data.  */
-  if (!cl->enc_val.value)
-    return gpg_error (GPG_ERR_INV_SEXP);
-  if (ecdh && (!cl->enc_val.ecdh.e
-               || !cl->enc_val.ecdh.elen
-               || !cl->enc_val.ecdh.encr_algo
-               || !cl->enc_val.ecdh.wrap_algo))
-    return gpg_error (GPG_ERR_INV_SEXP);
+    /* expect closing )) */
+    if (*s != ')')
+    {
+        err = gpg_error (digitp(s)? GPG_ERR_UNKNOWN_SEXP: GPG_ERR_INV_SEXP);
+        goto cleanup;
+    }
+    s++;
+    if (*s != ')')
+    {
+        err = gpg_error (GPG_ERR_INV_SEXP);
+        goto cleanup;
+    }
 
+    /* validate mandatory fields */
+    if (!cl->enc_val.value)
+    {
+        err = gpg_error (GPG_ERR_INV_SEXP);
+        goto cleanup;
+    }
+    if (!strcmp(cl->enc_val.algo, "1.2.840.10045.2.1") &&
+        (!cl->enc_val.ecdh.e || !cl->enc_val.ecdh.elen ||
+         !cl->enc_val.ecdh.encr_algo || !cl->enc_val.ecdh.wrap_algo))
+    {
+        err = gpg_error (GPG_ERR_INV_SEXP);
+        goto cleanup;
+    }
 
-  return 0;
+    return 0;
+
+cleanup:
+    xfree(cl->enc_val.value);
+    xfree(cl->enc_val.algo);
+    xfree(cl->enc_val.ecdh.e);
+    xfree(cl->enc_val.ecdh.encr_algo);
+    xfree(cl->enc_val.ecdh.wrap_algo);
+    return err;
 }
 
 
@@ -2929,59 +3292,71 @@ static gpg_error_t
 store_smime_capability_sequence (AsnNode node,
                                  struct oidparmlist_s *capabilities)
 {
-  gpg_error_t err;
-  struct oidparmlist_s *cap, *cap2;
-  unsigned char *value;
-  size_t valuelen;
-  ksba_writer_t tmpwrt;
+    gpg_error_t err;
+    struct oidparmlist_s *cap, *cap2;
+    unsigned char *value;
+    size_t valuelen;
+    ksba_writer_t tmpwrt;
 
-  err = ksba_writer_new (&tmpwrt);
-  if (err)
-    return err;
-  err = ksba_writer_set_mem (tmpwrt, 512);
-  if (err)
+    err = ksba_writer_new (&tmpwrt);
+    if (err)
+        return err;
+    err = ksba_writer_set_mem (tmpwrt, 512);
+    if (err)
     {
-      ksba_writer_release (tmpwrt);
-      return err;
+        ksba_writer_release (tmpwrt);
+        return err;
     }
 
-  for (cap=capabilities; cap; cap = cap->next)
+    for (cap = capabilities; cap; cap = cap->next)
     {
-      /* (avoid writing duplicates) */
-      for (cap2=capabilities; cap2 != cap; cap2 = cap2->next)
+        /* avoid writing duplicates */
+        for (cap2 = capabilities; cap2 != cap; cap2 = cap2->next)
         {
-          if (!strcmp (cap->oid, cap2->oid)
-              && cap->parmlen && cap->parmlen == cap2->parmlen
-              && !memcmp (cap->parm, cap2->parm, cap->parmlen))
-            break; /* Duplicate found. */
-        }
-      if (cap2 == cap)
-        {
-          /* RFC3851 requires that a missing parameter must not be
-             encoded as NULL.  This is in contrast to all other usages
-             of the algorithm identifier where ist is allowed and in
-             some profiles (e.g. tmttv2) even explicitly suggested to
-             use NULL.  */
-          err = _ksba_der_write_algorithm_identifier
-                 (tmpwrt, cap->oid,
-                  cap->parmlen?cap->parm:(const void*)"", cap->parmlen);
-          if (err)
+            if (!strcmp (cap->oid, cap2->oid)
+                && cap->parmlen == cap2->parmlen
+                && cap->parmlen
+                && !memcmp (cap->parm, cap2->parm, cap->parmlen))
             {
-              ksba_writer_release (tmpwrt);
-              return err;
+                break; /* duplicate */
             }
         }
+        if (cap2 != cap)
+            continue;
+
+        /* RFC3851: missing parameter must NOT be encoded as NULL here */
+        {
+            struct algorithm_param_s param;
+            memset(&param, 0, sizeof(param));
+            param.tag         = TYPE_OCTET_STRING;
+            param.class       = CLASS_UNIVERSAL;
+            param.constructed = 0;
+            param.value       = cap->parmlen ? cap->parm : (unsigned char *)"";
+            param.length      = cap->parmlen;
+
+            err = _ksba_der_write_algorithm_identifier(
+                      tmpwrt,
+                      cap->oid,
+                      &param,
+                      cap->parmlen ? 1 : 0);
+        }
+        if (err)
+        {
+            ksba_writer_release (tmpwrt);
+            return err;
+        }
     }
 
-  value = ksba_writer_snatch_mem (tmpwrt, &valuelen);
-  if (!value)
-    err = gpg_error (GPG_ERR_ENOMEM);
-  if (!err)
-    err = _ksba_der_store_sequence (node, value, valuelen);
-  xfree (value);
-  ksba_writer_release (tmpwrt);
-  return err;
+    value = ksba_writer_snatch_mem (tmpwrt, &valuelen);
+    if (!value)
+        err = gpg_error (GPG_ERR_ENOMEM);
+    if (!err)
+        err = _ksba_der_store_sequence (node, value, valuelen);
+    xfree (value);
+    ksba_writer_release (tmpwrt);
+    return err;
 }
+
 
 
 /* An object used to construct the signed attributes. */
@@ -3345,272 +3720,226 @@ build_signed_data_attributes (ksba_cms_t cms)
 
 /* The user has calculated the signatures and we can therefore write
    everything left over to do. */
+/* The user has calculated the signatures and we can therefore write
+   everything left over to do. */
 static gpg_error_t
 build_signed_data_rest (ksba_cms_t cms)
 {
-  gpg_error_t err;
-  int signer;
-  ksba_asn_tree_t cms_tree = NULL;
-  struct certlist_s *certlist;
-  struct oidlist_s *digestlist;
-  struct signer_info_s *si;
-  struct sig_val_s *sv;
-  ksba_writer_t tmpwrt = NULL;
-  AsnNode root = NULL;
-  ksba_der_t dbld = NULL;
+    gpg_error_t err;
+    int signer;
+    ksba_asn_tree_t cms_tree = NULL;
+    struct certlist_s *certlist;
+    struct oidlist_s *digestlist;
+    struct signer_info_s *si;
+    struct sig_val_s *sv;
+    ksba_writer_t tmpwrt = NULL;
+    AsnNode root = NULL;
+    ksba_der_t dbld = NULL;
 
-  /* Now we can really write the signer info */
-  err = ksba_asn_create_tree ("cms", &cms_tree);
-  if (err)
-    return err;
-
-  certlist = cms->cert_list;
-  if (!certlist)
-    {
-      err = gpg_error (GPG_ERR_MISSING_VALUE); /* oops */
-      return err;
-    }
-
-  /* To construct the set we use a temporary writer object. */
-  err = ksba_writer_new (&tmpwrt);
-  if (err)
-    goto leave;
-  err = ksba_writer_set_mem (tmpwrt, 2048);
-  if (err)
-    goto leave;
-
-  digestlist = cms->digest_algos;
-  si = cms->signer_info;
-  sv = cms->sig_val;
-
-  for (signer=0; certlist;
-       signer++,
-         certlist = certlist->next,
-         digestlist = digestlist->next,
-         si = si->next,
-         sv = sv->next)
-    {
-      AsnNode n, n2;
-      unsigned char *image;
-      size_t imagelen;
-      const char *oid;
-
-      if (!digestlist || !si || !sv)
-        {
-	  err = gpg_error (GPG_ERR_MISSING_VALUE); /* oops */
-	  goto leave;
-	}
-      if (!certlist->cert || !digestlist->oid)
-        {
-	  err = gpg_error (GPG_ERR_BUG);
-	  goto leave;
-	}
-
-      root = _ksba_asn_expand_tree (cms_tree->parse_tree,
-                                    "CryptographicMessageSyntax.SignerInfo");
-
-      /* We store a version of 1 because we use the issuerAndSerialNumber */
-      n = _ksba_asn_find_node (root, "SignerInfo.version");
-      if (!n)
-	{
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      err = _ksba_der_store_integer (n, "\x00\x00\x00\x01\x01");
-      if (err)
-        goto leave;
-
-      /* Store the sid */
-      n = _ksba_asn_find_node (root, "SignerInfo.sid");
-      if (!n)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-
-      err = set_issuer_serial (n, certlist->cert, 0);
-      if (err)
-        goto leave;
-
-      /* store the digestAlgorithm */
-      n = _ksba_asn_find_node (root, "SignerInfo.digestAlgorithm.algorithm");
-      if (!n)
-	{
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      err = _ksba_der_store_oid (n, digestlist->oid);
-      if (err)
-        goto leave;
-      n = _ksba_asn_find_node (root, "SignerInfo.digestAlgorithm.parameters");
-      if (!n)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      err = _ksba_der_store_null (n);
-      if (err)
-        goto leave;
-
-      /* and the signed attributes */
-      n = _ksba_asn_find_node (root, "SignerInfo.signedAttrs");
-      if (!n || !n->down)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      assert (si->root);
-      assert (si->image);
-      n2 = _ksba_asn_find_node (si->root, "SignerInfo.signedAttrs");
-      if (!n2 || !n2->down)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      err = _ksba_der_copy_tree (n, n2, si->image);
-      if (err)
-        goto leave;
-      image = NULL;
-
-      /* store the signatureAlgorithm */
-      n = _ksba_asn_find_node (root,
-			       "SignerInfo.signatureAlgorithm.algorithm");
-      if (!n)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      if (!sv->algo)
-        {
-	  err = gpg_error (GPG_ERR_MISSING_VALUE);
-	  goto leave;
-	}
-
-      if (!strcmp (sv->algo, "ecdsa"))
-        {
-          /* Look at the digest algorithm and replace accordingly.  */
-          if (!strcmp (digestlist->oid, "2.16.840.1.101.3.4.2.1"))
-            oid = "1.2.840.10045.4.3.2";  /* ecdsa-with-SHA256 */
-          else if (!strcmp (digestlist->oid, "2.16.840.1.101.3.4.2.2"))
-            oid = "1.2.840.10045.4.3.3";  /* ecdsa-with-SHA384 */
-          else if (!strcmp (digestlist->oid, "2.16.840.1.101.3.4.2.3"))
-            oid = "1.2.840.10045.4.3.4";  /* ecdsa-with-SHA512 */
-          else
-            {
-              err = gpg_error (GPG_ERR_DIGEST_ALGO);
-              goto leave;
-            }
-        }
-      else
-        oid = sv->algo;
-
-      err = _ksba_der_store_oid (n, oid);
-      if (err)
-	goto leave;
-      n = _ksba_asn_find_node (root,
-			       "SignerInfo.signatureAlgorithm.parameters");
-      if (!n)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      err = _ksba_der_store_null (n);
-      if (err)
-	goto leave;
-
-      /* store the signature  */
-      if (!sv->value)
-        {
-	  err = gpg_error (GPG_ERR_MISSING_VALUE);
-	  goto leave;
-	}
-      n = _ksba_asn_find_node (root, "SignerInfo.signature");
-      if (!n)
-	{
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-
-      if (sv->ecc.r)  /* ECDSA */
-        {
-          unsigned char *tmpder;
-          size_t tmpderlen;
-
-          _ksba_der_release (dbld);
-          dbld = _ksba_der_builder_new (0);
-          if (!dbld)
-            {
-              err = gpg_error_from_syserror ();
-              goto leave;
-            }
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          _ksba_der_add_int (dbld, sv->ecc.r, sv->ecc.rlen, 1);
-          _ksba_der_add_int (dbld, sv->value, sv->valuelen, 1);
-          _ksba_der_add_end (dbld);
-
-          err = _ksba_der_builder_get (dbld, &tmpder, &tmpderlen);
-          if (err)
-            goto leave;
-          err = _ksba_der_store_octet_string (n, tmpder, tmpderlen);
-          xfree (tmpder);
-          if (err)
-            goto leave;
-        }
-      else  /* RSA */
-        {
-          err = _ksba_der_store_octet_string (n, sv->value, sv->valuelen);
-          if (err)
-            goto leave;
-        }
-
-      /* Make the DER encoding and write it out. */
-      err = _ksba_der_encode_tree (root, &image, &imagelen);
-      if (err)
-	goto leave;
-
-      err = ksba_writer_write (tmpwrt, image, imagelen);
-      xfree (image);
-      if (err)
-	goto leave;
-    }
-
-  /* Write out the SET filled with all signer infos */
-  {
-    unsigned char *value;
-    size_t valuelen;
-
-    value = ksba_writer_snatch_mem (tmpwrt, &valuelen);
-    if (!value)
-      {
-        err = gpg_error (GPG_ERR_ENOMEM);
-	goto leave;
-      }
-    err = _ksba_ber_write_tl (cms->writer, TYPE_SET, CLASS_UNIVERSAL,
-                              1, valuelen);
-    if (!err)
-      err = ksba_writer_write (cms->writer, value, valuelen);
-    xfree (value);
+    /* Now we can really write the signer info */
+    err = ksba_asn_create_tree("cms", &cms_tree);
     if (err)
-      goto leave;
-  }
+        return err;
 
-  /* Write 3 end tags */
-  err = _ksba_ber_write_tl (cms->writer, 0, 0, 0, 0);
-  if (!err)
-    err = _ksba_ber_write_tl (cms->writer, 0, 0, 0, 0);
-  if (!err)
-    err = _ksba_ber_write_tl (cms->writer, 0, 0, 0, 0);
+    certlist = cms->cert_list;
+    if (!certlist)
+    {
+        err = gpg_error(GPG_ERR_MISSING_VALUE);
+        return err;
+    }
 
- leave:
-  ksba_asn_tree_release (cms_tree);
-  _ksba_asn_release_nodes (root);
-  ksba_writer_release (tmpwrt);
-  _ksba_der_release (dbld);
-  return err;
+    /* To construct the set we use a temporary writer object. */
+    err = ksba_writer_new(&tmpwrt);
+    if (err)
+        goto leave;
+    err = ksba_writer_set_mem(tmpwrt, 2048);
+    if (err)
+        goto leave;
+
+    digestlist = cms->digest_algos;
+    si = cms->signer_info;
+    sv = cms->sig_val;
+
+    for (signer = 0; certlist;
+         signer++, certlist = certlist->next,
+         digestlist = digestlist->next,
+         si = si->next, sv = sv->next)
+    {
+        AsnNode n, n2;
+        unsigned char *image;
+        size_t imagelen;
+        const char *oid;
+
+        if (!digestlist || !si || !sv)
+        {
+            err = gpg_error(GPG_ERR_MISSING_VALUE);
+            goto leave;
+        }
+        if (!certlist->cert || !digestlist->oid)
+        {
+            err = gpg_error(GPG_ERR_BUG);
+            goto leave;
+        }
+
+        root = _ksba_asn_expand_tree(cms_tree->parse_tree,
+                                     "CryptographicMessageSyntax.SignerInfo");
+
+        /* version */
+        n = _ksba_asn_find_node(root, "SignerInfo.version");
+        if (!n)
+        {
+            err = gpg_error(GPG_ERR_ELEMENT_NOT_FOUND);
+            goto leave;
+        }
+        err = _ksba_der_store_integer(n, "\x00\x00\x00\x01\x01");
+        if (err)
+            goto leave;
+
+        /* sid */
+        n = _ksba_asn_find_node(root, "SignerInfo.sid");
+        if (!n)
+        {
+            err = gpg_error(GPG_ERR_ELEMENT_NOT_FOUND);
+            goto leave;
+        }
+        err = set_issuer_serial(n, certlist->cert, 0);
+        if (err)
+            goto leave;
+
+        /* store the digestAlgorithm */
+        n = _ksba_asn_find_node(root, "SignerInfo.digestAlgorithm");
+        if (!n)
+        {
+            err = gpg_error(GPG_ERR_ELEMENT_NOT_FOUND);
+            goto leave;
+        }
+        err = store_algorithm_id(n, digestlist->oid, NULL, 0);
+        if (err)
+            goto leave;
+
+        /* and the signed attributes */
+        n = _ksba_asn_find_node(root, "SignerInfo.signedAttrs");
+        if (!n || !n->down)
+        {
+            err = gpg_error(GPG_ERR_ELEMENT_NOT_FOUND);
+            goto leave;
+        }
+        assert(si->root && si->image);
+        n2 = _ksba_asn_find_node(si->root, "SignerInfo.signedAttrs");
+        if (!n2 || !n2->down)
+        {
+            err = gpg_error(GPG_ERR_ELEMENT_NOT_FOUND);
+            goto leave;
+        }
+        err = _ksba_der_copy_tree(n, n2, si->image);
+        if (err)
+            goto leave;
+
+        /* store the signatureAlgorithm */
+        n = _ksba_asn_find_node(root, "SignerInfo.signatureAlgorithm");
+        if (!n)
+        {
+            err = gpg_error(GPG_ERR_ELEMENT_NOT_FOUND);
+            goto leave;
+        }
+        if (!sv->algo)
+        {
+            err = gpg_error(GPG_ERR_MISSING_VALUE);
+            goto leave;
+        }
+        err = store_algorithm_id(n, sv->algo, NULL, 0);
+        if (err)
+            goto leave;
+
+        /* store the signature */
+        if (!sv->value)
+        {
+            err = gpg_error(GPG_ERR_MISSING_VALUE);
+            goto leave;
+        }
+        n = _ksba_asn_find_node(root, "SignerInfo.signature");
+        if (!n)
+        {
+            err = gpg_error(GPG_ERR_ELEMENT_NOT_FOUND);
+            goto leave;
+        }
+
+        if (sv->ecc.r)  /* ECDSA */
+        {
+            unsigned char *tmpder;
+            size_t tmpderlen;
+
+            _ksba_der_release(dbld);
+            dbld = _ksba_der_builder_new(0);
+            if (!dbld)
+            {
+                err = gpg_error_from_syserror();
+                goto leave;
+            }
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            _ksba_der_add_int(dbld, sv->ecc.r, sv->ecc.rlen, 1);
+            _ksba_der_add_int(dbld, sv->value, sv->valuelen, 1);
+            _ksba_der_add_end(dbld);
+
+            err = _ksba_der_builder_get(dbld, &tmpder, &tmpderlen);
+            if (err)
+                goto leave;
+            err = _ksba_der_store_octet_string(n, tmpder, tmpderlen);
+            xfree(tmpder);
+            if (err)
+                goto leave;
+        }
+        else  /* RSA */
+        {
+            err = _ksba_der_store_octet_string(n, sv->value, sv->valuelen);
+            if (err)
+                goto leave;
+        }
+
+        /* encode and write */
+        err = _ksba_der_encode_tree(root, &image, &imagelen);
+        if (err)
+            goto leave;
+        err = ksba_writer_write(tmpwrt, image, imagelen);
+        xfree(image);
+        if (err)
+            goto leave;
+    }
+
+    /* Write out the SET filled with all signer infos */
+    {
+        unsigned char *value;
+        size_t valuelen;
+
+        value = ksba_writer_snatch_mem(tmpwrt, &valuelen);
+        if (!value)
+        {
+            err = gpg_error(GPG_ERR_ENOMEM);
+            goto leave;
+        }
+        err = _ksba_ber_write_tl(cms->writer, TYPE_SET, CLASS_UNIVERSAL,
+                                1, valuelen);
+        if (!err)
+            err = ksba_writer_write(cms->writer, value, valuelen);
+        xfree(value);
+        if (err)
+            goto leave;
+    }
+
+    /* Write 3 end tags */
+    err = _ksba_ber_write_tl(cms->writer, 0, 0, 0, 0);
+    if (!err)
+        err = _ksba_ber_write_tl(cms->writer, 0, 0, 0, 0);
+    if (!err)
+        err = _ksba_ber_write_tl(cms->writer, 0, 0, 0, 0);
+
+leave:
+    ksba_asn_tree_release(cms_tree);
+    _ksba_asn_release_nodes(root);
+    ksba_writer_release(tmpwrt);
+    _ksba_der_release(dbld);
+    return err;
 }
-
-
-
 
 static gpg_error_t
 ct_build_signed_data (ksba_cms_t cms)
@@ -3701,268 +4030,223 @@ ct_build_signed_data (ksba_cms_t cms)
 static gpg_error_t
 build_enveloped_data_header (ksba_cms_t cms)
 {
-  gpg_error_t err;
-  int recpno;
-  struct certlist_s *certlist;
-  unsigned char *buf;
-  const char *s;
-  size_t len;
-  ksba_der_t dbld = NULL;
-  int any_ecdh = 0;
+    gpg_error_t err;
+    int recpno;
+    struct certlist_s *certlist;
+    unsigned char *buf;
+    const char *s;
+    size_t len;
+    ksba_der_t dbld = NULL;
+    int any_ecdh = 0;
 
-  /* See whether we have any ECDH recipients.  */
-  for (certlist = cms->cert_list; certlist; certlist = certlist->next)
-    if (certlist->enc_val.ecdh.e)
-      {
-        any_ecdh = 1;
-        break;
-      }
-
-  /* Write the outer contentInfo */
-  /* fixme: code is shared with signed_data_header */
-  err = _ksba_ber_write_tl (cms->writer, TYPE_SEQUENCE, CLASS_UNIVERSAL, 1, 0);
-  if (err)
-    return err;
-  err = ksba_oid_from_str (cms->content.oid, &buf, &len);
-  if (err)
-    return err;
-  err = _ksba_ber_write_tl (cms->writer,
-                            TYPE_OBJECT_ID, CLASS_UNIVERSAL, 0, len);
-  if (!err)
-    err = ksba_writer_write (cms->writer, buf, len);
-  xfree (buf);
-  if (err)
-    return err;
-
-  err = _ksba_ber_write_tl (cms->writer, 0, CLASS_CONTEXT, 1, 0);
-  if (err)
-    return err;
-
-  /* The SEQUENCE */
-  err = _ksba_ber_write_tl (cms->writer, TYPE_SEQUENCE, CLASS_UNIVERSAL, 1, 0);
-  if (err)
-    return err;
-
-  /* figure out the CMSVersion to be used (from rfc2630):
-     version is the syntax version number.  If originatorInfo is
-     present, then version shall be 2.  If any of the RecipientInfo
-     structures included have a version other than 0, then the version
-     shall be 2.  If unprotectedAttrs is present, then version shall
-     be 2.  If originatorInfo is absent, all of the RecipientInfo
-     structures are version 0, and unprotectedAttrs is absent, then
-     version shall be 0.
-
-     For SPHINX the version number must be 0.
-  */
-
-
-  s = any_ecdh? "\x02" :"\x00";
-  err = _ksba_ber_write_tl (cms->writer, TYPE_INTEGER, CLASS_UNIVERSAL, 0, 1);
-  if (err)
-    return err;
-  err = ksba_writer_write (cms->writer, s, 1);
-  if (err)
-    return err;
-
-  /* Note: originatorInfo is not yet implemented and must not be used
-     for SPHINX */
-
-  certlist = cms->cert_list;
-  if (!certlist)
-    {
-      err = gpg_error (GPG_ERR_MISSING_VALUE); /* oops */
-      goto leave;
-    }
-
-
-  dbld = _ksba_der_builder_new (0);
-  if (!dbld)
-    {
-      err = gpg_error_from_syserror ();
-      goto leave;
-    }
-
-  _ksba_der_add_tag (dbld, 0, TYPE_SET);
-  for (recpno=0; certlist; recpno++, certlist = certlist->next)
-    {
-      const unsigned char *der;
-      size_t derlen;
-
-      if (!certlist->cert)
+    /* See whether we have any ECDH recipients.  */
+    for (certlist = cms->cert_list; certlist; certlist = certlist->next)
+        if (certlist->enc_val.ecdh.e)
         {
-          err = gpg_error (GPG_ERR_BUG);
-          goto leave;
+            any_ecdh = 1;
+            break;
         }
 
-      if (!certlist->enc_val.ecdh.e)  /* RSA (ktri) */
-        {
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          /* We store a version of 0 because we are only allowed to
-           * use the issuerAndSerialNumber for SPHINX */
-          _ksba_der_add_ptr (dbld, 0, TYPE_INTEGER, "", 1);
-          /* rid.issuerAndSerialNumber */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          /* rid.issuerAndSerialNumber.issuer */
-          err = _ksba_cert_get_issuer_dn_ptr (certlist->cert, &der, &derlen);
-          if (err)
-            goto leave;
-          _ksba_der_add_der (dbld, der, derlen);
-          /* rid.issuerAndSerialNumber.serialNumber */
-          err = _ksba_cert_get_serial_ptr (certlist->cert, &der, &derlen);
-          if (err)
-            goto leave;
-          _ksba_der_add_der (dbld, der, derlen);
-          _ksba_der_add_end (dbld);
+    /* Write the outer contentInfo */
+    err = _ksba_ber_write_tl(cms->writer, TYPE_SEQUENCE, CLASS_UNIVERSAL, 1, 0);
+    if (err)
+        return err;
 
-          /* Store the keyEncryptionAlgorithm */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          if (!certlist->enc_val.algo || !certlist->enc_val.value)
-            {
-              err = gpg_error (GPG_ERR_MISSING_VALUE);
-              goto leave;
-            }
-          _ksba_der_add_oid (dbld, certlist->enc_val.algo);
-          /* Now store NULL for the optional parameters.  From Peter
-           * Gutmann's X.509 style guide:
-           *
-           *   Another pitfall to be aware of is that algorithms which
-           *   have no parameters have this specified as a NULL value
-           *   rather than omitting the parameters field entirely.  The
-           *   reason for this is that when the 1988 syntax for
-           *   AlgorithmIdentifier was translated into the 1997 syntax,
-           *   the OPTIONAL associated with the AlgorithmIdentifier
-           *   parameters got lost.  Later it was recovered via a defect
-           *   report, but by then everyone thought that algorithm
-           *   parameters were mandatory.  Because of this the algorithm
-           *   parameters should be specified as NULL, regardless of what
-           *   you read elsewhere.
-           *
-           *        The trouble is that things *never* get better, they just
-           *        stay the same, only more so
-           *            -- Terry Pratchett, "Eric"
-           *
-           * Although this is about signing, we always do it.  Versions of
-           * Libksba before 1.0.6 had a bug writing out the NULL tag here,
-           * thus in reality we used to be correct according to the
-           * standards despite we didn't intended so.
-           */
-          _ksba_der_add_ptr (dbld, 0, TYPE_NULL, NULL, 0);
-          _ksba_der_add_end (dbld);
+    err = ksba_oid_from_str(cms->content.oid, &buf, &len);
+    if (err)
+        return err;
+    err = _ksba_ber_write_tl(cms->writer,
+                             TYPE_OBJECT_ID, CLASS_UNIVERSAL, 0, len);
+    if (!err)
+        err = ksba_writer_write(cms->writer, buf, len);
+    xfree(buf);
+    if (err)
+        return err;
 
-          /* Store the encryptedKey  */
-          if (!certlist->enc_val.value)
-            {
-              err = gpg_error (GPG_ERR_MISSING_VALUE);
-              goto leave;
-            }
-          _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING,
-                             certlist->enc_val.value,
-                             certlist->enc_val.valuelen);
+    err = _ksba_ber_write_tl(cms->writer, 0, CLASS_CONTEXT, 1, 0);
+    if (err)
+        return err;
 
-        }
-      else /* ECDH */
-        {
-          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* kari */
-          _ksba_der_add_ptr (dbld, 0, TYPE_INTEGER, "\x03", 1);
+    /* The SEQUENCE */
+    err = _ksba_ber_write_tl(cms->writer, TYPE_SEQUENCE, CLASS_UNIVERSAL, 1, 0);
+    if (err)
+        return err;
 
-          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 0); /* originator */
-          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* originatorKey */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* algorithm */
-          _ksba_der_add_oid (dbld, certlist->enc_val.algo);
-          _ksba_der_add_end (dbld);
-          _ksba_der_add_bts (dbld, certlist->enc_val.ecdh.e,
-                             certlist->enc_val.ecdh.elen, 0);
-          _ksba_der_add_end (dbld); /* end originatorKey */
-          _ksba_der_add_end (dbld); /* end originator */
+    /* version */
+    s = any_ecdh ? "\x02" : "\x00";
+    err = _ksba_ber_write_tl(cms->writer, TYPE_INTEGER, CLASS_UNIVERSAL, 0, 1);
+    if (err)
+        return err;
+    err = ksba_writer_write(cms->writer, s, 1);
+    if (err)
+        return err;
 
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* keyEncrAlgo */
-          _ksba_der_add_oid (dbld, certlist->enc_val.ecdh.encr_algo);
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          _ksba_der_add_oid (dbld, certlist->enc_val.ecdh.wrap_algo);
-          _ksba_der_add_end (dbld);
-          _ksba_der_add_end (dbld); /* end keyEncrAlgo */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* recpEncrKeys */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* recpEncrKey */
+    /* no originatorInfo for SPHINX */
 
-          /* rid.issuerAndSerialNumber */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          err = _ksba_cert_get_issuer_dn_ptr (certlist->cert, &der, &derlen);
-          if (err)
-            goto leave;
-          _ksba_der_add_der (dbld, der, derlen);
-          err = _ksba_cert_get_serial_ptr (certlist->cert, &der, &derlen);
-          if (err)
-            goto leave;
-          _ksba_der_add_der (dbld, der, derlen);
-          _ksba_der_add_end (dbld);
-
-          /* encryptedKey  */
-          if (!certlist->enc_val.value)
-            {
-              err = gpg_error (GPG_ERR_MISSING_VALUE);
-              goto leave;
-            }
-          _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING,
-                             certlist->enc_val.value,
-                             certlist->enc_val.valuelen);
-
-          _ksba_der_add_end (dbld); /* end recpEncrKey */
-          _ksba_der_add_end (dbld); /* end recpEncrKeys */
-       }
-
-      _ksba_der_add_end (dbld); /* End SEQUENCE (ktri or kari) */
+    /* build the SET of RecipientInfos via DER builder */
+    dbld = _ksba_der_builder_new(0);
+    if (!dbld)
+    {
+        err = gpg_error_from_syserror();
+        goto leave;
     }
-  _ksba_der_add_end (dbld);  /* End SET */
+    _ksba_der_add_tag(dbld, 0, TYPE_SET);
 
-  /* Write out the SET filled with all recipient infos */
-  {
-    unsigned char *image;
-    size_t imagelen;
+    recpno = 0;
+    for (certlist = cms->cert_list; certlist; recpno++, certlist = certlist->next)
+    {
+        const unsigned char *der;
+        size_t derlen;
 
-    err = _ksba_der_builder_get (dbld, &image, &imagelen);
-    if (err)
-      goto leave;
-    err = ksba_writer_write (cms->writer, image, imagelen);
-    xfree (image);
-    if (err)
-      goto leave;
-  }
+        if (!certlist->cert)
+        {
+            err = gpg_error(GPG_ERR_BUG);
+            goto leave;
+        }
 
-  /* Write the (inner) encryptedContentInfo */
-  err = _ksba_ber_write_tl (cms->writer, TYPE_SEQUENCE, CLASS_UNIVERSAL, 1, 0);
-  if (err)
+        if (!certlist->enc_val.ecdh.e)  /* RSA (ktri) */
+        {
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+
+            /* version 0 */
+            _ksba_der_add_ptr(dbld, 0, TYPE_INTEGER, "\x00", 1);
+
+            /* rid.issuerAndSerialNumber */
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            err = _ksba_cert_get_issuer_dn_ptr(certlist->cert, &der, &derlen);
+            if (err) goto leave;
+            _ksba_der_add_der(dbld, der, derlen);
+            err = _ksba_cert_get_serial_ptr(certlist->cert, &der, &derlen);
+            if (err) goto leave;
+            _ksba_der_add_der(dbld, der, derlen);
+            _ksba_der_add_end(dbld);
+
+            /* keyEncryptionAlgorithm */
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            if (!certlist->enc_val.algo || !certlist->enc_val.value)
+            {
+                err = gpg_error(GPG_ERR_MISSING_VALUE);
+                goto leave;
+            }
+            /* AlgorithmIdentifier with NULL parameters */
+            _ksba_der_add_oid(dbld, certlist->enc_val.algo);
+            _ksba_der_add_ptr(dbld, 0, TYPE_NULL, NULL, 0);
+            _ksba_der_add_end(dbld);
+
+            /* encryptedKey */
+            _ksba_der_add_ptr(dbld, 0,
+                              TYPE_OCTET_STRING,
+                              certlist->enc_val.value,
+                              certlist->enc_val.valuelen);
+        }
+        else  /* ECDH */
+        {
+            /* kari, originator, recipient keys, etc… */
+            _ksba_der_add_tag(dbld, CLASS_CONTEXT, 1);
+            _ksba_der_add_ptr(dbld, 0, TYPE_INTEGER, "\x03", 1);
+            _ksba_der_add_tag(dbld, CLASS_CONTEXT, 0);
+            _ksba_der_add_tag(dbld, CLASS_CONTEXT, 1);
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            _ksba_der_add_oid(dbld, certlist->enc_val.algo);
+            _ksba_der_add_end(dbld);
+            _ksba_der_add_bts(dbld,
+                              certlist->enc_val.ecdh.e,
+                              certlist->enc_val.ecdh.elen,
+                              0);
+            _ksba_der_add_end(dbld);
+            _ksba_der_add_end(dbld);
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            _ksba_der_add_oid(dbld, certlist->enc_val.ecdh.encr_algo);
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            _ksba_der_add_oid(dbld, certlist->enc_val.ecdh.wrap_algo);
+            _ksba_der_add_end(dbld);
+            _ksba_der_add_end(dbld);
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            /* rid */
+            _ksba_der_add_tag(dbld, 0, TYPE_SEQUENCE);
+            err = _ksba_cert_get_issuer_dn_ptr(certlist->cert, &der, &derlen);
+            if (err) goto leave;
+            _ksba_der_add_der(dbld, der, derlen);
+            err = _ksba_cert_get_serial_ptr(certlist->cert, &der, &derlen);
+            if (err) goto leave;
+            _ksba_der_add_der(dbld, der, derlen);
+            _ksba_der_add_end(dbld);
+
+            /* encryptedKey */
+            if (!certlist->enc_val.value)
+            {
+                err = gpg_error(GPG_ERR_MISSING_VALUE);
+                goto leave;
+            }
+            _ksba_der_add_ptr(dbld,
+                              0,
+                              TYPE_OCTET_STRING,
+                              certlist->enc_val.value,
+                              certlist->enc_val.valuelen);
+
+            _ksba_der_add_end(dbld);
+            _ksba_der_add_end(dbld);
+        }
+
+        _ksba_der_add_end(dbld);  /* end SEQUENCE */
+    }
+    _ksba_der_add_end(dbld);      /* end SET */
+
+    /* write out all RecipientInfos */
+    {
+        unsigned char *image;
+        size_t imagelen;
+        err = _ksba_der_builder_get(dbld, &image, &imagelen);
+        if (err) goto leave;
+        err = ksba_writer_write(cms->writer, image, imagelen);
+        xfree(image);
+        if (err) goto leave;
+    }
+
+    /* --- now the contentEncryptionAlgorithm itself --- */
+
+    {
+        struct algorithm_param_s algo_params[2];
+        int algo_params_count = 1;
+        /* IV as first parameter */
+        algo_params[0].tag = TYPE_OCTET_STRING;
+        algo_params[0].class = CLASS_UNIVERSAL;
+        algo_params[0].constructed = 0;
+        algo_params[0].value = cms->encr_iv;
+        algo_params[0].length = cms->encr_ivlen;
+
+        /* for GOST with S-box OID, add second parameter */
+        if (strcmp(cms->encr_algo_oid, "1.2.643.2.2.21") == 0
+            && cms->encr_algo_sbox_oid)
+        {
+            /* retrieve S-box OID bytes */
+            err = ksba_oid_from_str(cms->encr_algo_sbox_oid,
+                                   &algo_params[1].value,
+                                   &algo_params[1].length);
+            if (err) goto leave;
+            algo_params[1].tag = TYPE_OBJECT_ID;
+            algo_params[1].class = CLASS_UNIVERSAL;
+            algo_params[1].constructed = 0;
+            algo_params_count = 2;
+        }
+
+        /* write encryptionAlgorithm */
+        err = _ksba_der_write_algorithm_identifier(cms->writer,
+                                                   cms->encr_algo_oid,
+                                                   algo_params,
+                                                   algo_params_count);
+        if (err)
+            return err;
+    }
+
+    return 0;
+
+leave:
+    _ksba_der_release(dbld);
     return err;
-  err = ksba_oid_from_str (cms->inner_cont_oid, &buf, &len);
-  if (err)
-    return err;
-  err = _ksba_ber_write_tl (cms->writer,
-                            TYPE_OBJECT_ID, CLASS_UNIVERSAL, 0, len);
-  if (!err)
-    err = ksba_writer_write (cms->writer, buf, len);
-  xfree (buf);
-  if (err)
-    return err;
-
-  /* and the encryptionAlgorithm */
-  err = _ksba_der_write_algorithm_identifier (cms->writer,
-                                              cms->encr_algo_oid,
-                                              cms->encr_iv,
-                                              cms->encr_ivlen);
-  if (err)
-    return err;
-
-  /* write the tag for the encrypted data, it is an implicit octect
-     string in constructed form and indefinite length */
-  err = _ksba_ber_write_tl (cms->writer, 0, CLASS_CONTEXT, 1, 0);
-  if (err)
-    return err;
-
-  /* Now the encrypted data should be written */
-
- leave:
-  _ksba_der_release (dbld);
-  return err;
 }
+
 
 
 static gpg_error_t
