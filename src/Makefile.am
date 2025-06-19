@@ -44,7 +44,7 @@ CLEANFILES = asn1-gentables
 DISTCLEANFILES = asn1-tables.c
 
 AM_CPPFLAGS =  -I$(top_builddir)/gl -I$(top_srcdir)/gl
-AM_CFLAGS = $(GPG_ERROR_CFLAGS) $(COVERAGE_CFLAGS)
+AM_CPPFLAGS =  -I$(top_builddir)/gl -I$(top_srcdir)/gl -DKSBA_TESTING
 
 
 if HAVE_LD_VERSION_SCRIPT
