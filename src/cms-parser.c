@@ -249,7 +249,8 @@ static gpg_error_t
 parse_encrypted_content_info (ksba_reader_t reader,
                               unsigned long *r_len, int *r_ndef,
                               char **r_cont_oid, char **r_algo_oid,
-                              char **r_algo_parm, size_t *r_algo_parmlen,
+                              struct algorithm_param_s **r_algo_parm,
+                              int *r_algo_parmcount,
                               int *r_algo_parmtype,
                               int *has_content)
 {
@@ -260,8 +261,8 @@ parse_encrypted_content_info (ksba_reader_t reader,
   unsigned char tmpbuf[500]; /* for OID or algorithmIdentifier */
   char *cont_oid = NULL;
   char *algo_oid = NULL;
-  char *algo_parm = NULL;
-  size_t algo_parmlen;
+  struct algorithm_param_s *algo_parm = NULL;
+  int algo_parmcount = 0;
   size_t nread;
   int algo_parmtype;
 
@@ -850,8 +851,8 @@ _ksba_cms_parse_enveloped_data_part_1 (ksba_cms_t cms)
   unsigned long off, len;
   char *cont_oid = NULL;
   char *algo_oid = NULL;
-  char *algo_parm = NULL;
-  size_t algo_parmlen = 0;
+  struct algorithm_param_s *algo_parm = NULL;
+  int algo_parmcount = 0;
   int algo_parmtype = 0;
   struct value_tree_s *vt, **vtend;
 
@@ -997,8 +998,36 @@ _ksba_cms_parse_enveloped_data_part_1 (ksba_cms_t cms)
   cms->inner_cont_oid = cont_oid;
   cms->detached_data = !has_content;
   cms->encr_algo_oid = algo_oid;
-  cms->encr_iv = algo_parm; algo_parm = NULL;
-  cms->encr_ivlen = algo_parmlen;
+
+  if (algo_parmcount > 0)
+	{
+      /* The IV value is set for any known algorithm */
+	  if (algo_parm[0].tag == TYPE_OCTET_STRING &&
+		  algo_parm[0].class == CLASS_UNIVERSAL &&
+		  !algo_parm[0].constructed)
+		{
+		  cms->encr_iv = algo_parm[0].value;
+		  algo_parm[0].value = NULL;
+		  cms->encr_ivlen = algo_parm[0].length;
+		}
+
+      /* ...while the S-box parameter is GOST-specific: */
+      if (0 == strcmp (algo_oid, "1.2.643.2.2.21"))
+        {
+          if (algo_parm[1].tag == TYPE_OBJECT_ID &&
+              algo_parm[1].class == CLASS_UNIVERSAL &&
+              !algo_parm[1].constructed)
+            {
+              cms->encr_algo_sbox_oid =
+                ksba_oid_to_str (algo_parm[1].value, algo_parm[1].length);
+            }
+        }
+	}
+
+  release_algorithm_params (algo_parm, algo_parmcount);
+
+  //TODO: Use other parameters?
+
   if (!env_data_ndef)
     {
       len = ksba_reader_tell (cms->reader) - off;
