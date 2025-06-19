@@ -330,7 +330,7 @@ parse_encrypted_content_info (ksba_reader_t reader,
   err = _ksba_parse_algorithm_identifier3 (tmpbuf, ti.nhdr+ti.length,
                                            0x30,
                                            &nread, &algo_oid,
-                                           &algo_parm, &algo_parmlen,
+                                           &algo_parm, &algo_parmcount,
                                            &algo_parmtype);
   if (err)
     return err;
@@ -380,7 +380,7 @@ parse_encrypted_content_info (ksba_reader_t reader,
   *r_cont_oid = cont_oid;
   *r_algo_oid = algo_oid;
   *r_algo_parm = algo_parm;
-  *r_algo_parmlen = algo_parmlen;
+  *r_algo_parmcount = algo_parmcount;
   *r_algo_parmtype = algo_parmtype;
   return 0;
 }
@@ -963,7 +963,7 @@ _ksba_cms_parse_enveloped_data_part_1 (ksba_cms_t cms)
                                       &encr_cont_len, &encr_cont_ndef,
                                       &cont_oid,
                                       &algo_oid,
-                                      &algo_parm, &algo_parmlen, &algo_parmtype,
+                                      &algo_parm, &algo_parmcount, &algo_parmtype,
                                       &has_content);
   if (err)
     return err;
@@ -977,20 +977,17 @@ _ksba_cms_parse_enveloped_data_part_1 (ksba_cms_t cms)
    * Under the assumption that the IV is at max 16 bytes (i.e. the
    * blocksize of AES) and the default ICVlen is used, we modify the
    * parameter to have just the nonce without any encoding.  */
-  if (algo_parmlen > 4 && algo_parm[0] == 0x30 /* Sequence.  */
-      && algo_oid
+   if (algo_parmcount == 2 && algo_oid
       && (!strcmp (algo_oid, "2.16.840.1.101.3.4.1.46")     /*AES256.GCM*/
           || !strcmp (algo_oid, "2.16.840.1.101.3.4.1.26")  /*AES192.GCM*/
-          || !strcmp (algo_oid, "2.16.840.1.101.3.4.1.6"))) /*AES128.GCM*/
+          || !strcmp (algo_oid, "2.16.840.1.101.3.4.1.6"))  /*AES128.GCM*/
+      && algo_parm[0].tag == TYPE_OCTET_STRING
+      && algo_parm[0].class == CLASS_UNIVERSAL && !algo_parm[0].constructed
+      && algo_parm[1].tag == TYPE_INTEGER
+      && algo_parm[1].class == CLASS_UNIVERSAL && !algo_parm[1].constructed
+      && algo_parm[1].length == 1 && algo_parm[1].value[0] == 12)
     {
-      if (algo_parmlen == algo_parm[1] + 2
-          && algo_parm[1] == algo_parm[3] + 2
-          && algo_parm[2] == 0x04
-          && algo_parm[3] && algo_parm[3] <= 16)
-        {
-          algo_parmlen = algo_parm[3];
-          memmove (algo_parm, algo_parm+4, algo_parmlen);
-        }
+      /* Parameter is the expected default sequence - ignore ICVlen.  */
     }
 
   cms->inner_cont_len = encr_cont_len;
