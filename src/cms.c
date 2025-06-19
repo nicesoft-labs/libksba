@@ -2049,7 +2049,8 @@ typedef struct {
     {
       unsigned long n;
       gpg_error_t err = 0;
-    
+      int validx = 0;
+	    
       while (**s == '(')
         {
     	  (*s)++;
@@ -2058,8 +2059,6 @@ typedef struct {
     		  err = gpg_error (GPG_ERR_INV_SEXP);
     		  goto exit;
     		}
-    
-    	  int validx = 0;
     
     	  if (0 == count)
     		(*s) += n; /* ignore the name of the parameter */
@@ -2201,6 +2200,7 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
     gpg_error_t err = 0;
     unsigned long n;
     struct sig_val_s *sv, **sv_tail;
+    const unsigned char *s;
 
     int i, ecc;
 
