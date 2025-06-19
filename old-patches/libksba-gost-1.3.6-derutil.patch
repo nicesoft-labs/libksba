@@ -1,0 +1,408 @@
+ src/crl.c         |  23 +++++++-
+ src/der-encoder.c |  59 +++++++++++++++----
+ src/der-encoder.h |   7 ++-
+ src/keyinfo.c     | 165 ++++++++++++++++++++++++++++++++++++++++++++++--------
+ src/keyinfo.h     |  15 ++++-
+ 5 files changed, 229 insertions(+), 40 deletions(-)
+
+diff --git a/src/crl.c b/src/crl.c
+index daeb222..44726e5 100644
+--- a/src/crl.c
++++ b/src/crl.c
+@@ -946,10 +946,29 @@ parse_to_next_update (ksba_crl_t crl)
+ 
+   xfree (crl->algo.oid); crl->algo.oid = NULL;
+   xfree (crl->algo.parm); crl->algo.parm = NULL;
++
++
++  struct algorithm_param_s *algo_parm = NULL;
++  int algo_parmcount = 0;
+   err = _ksba_parse_algorithm_identifier2 (tmpbuf, ti.nhdr+ti.length, &nread,
+                                            &crl->algo.oid,
+-                                           &crl->algo.parm,
+-                                           &crl->algo.parmlen);
++										   &algo_parm, &algo_parmcount);
++  if (!err)
++	{
++	  if (algo_parmcount > 0)
++		{
++		  if (algo_parm[0].tag == TYPE_OCTET_STRING &&
++			  algo_parm[0].class == CLASS_UNIVERSAL &&
++			  !algo_parm[0].constructed)
++			{
++			  crl->algo.parm = algo_parm[0].value;
++			  algo_parm[0].value = NULL;
++			  crl->algo.parmlen = algo_parm[0].length;
++			}
++		}
++	}
++  release_algorithm_params (algo_parm, algo_parmcount);
++
+   if (err)
+     return err;
+   assert (nread <= ti.nhdr + ti.length);
+diff --git a/src/der-encoder.c b/src/der-encoder.c
+index 9592123..2ebb8a1 100644
+--- a/src/der-encoder.c
++++ b/src/der-encoder.c
+@@ -38,6 +38,7 @@
+ #include "ksba.h"
+ #include "asn1-func.h"
+ #include "ber-help.h"
++#include "keyinfo.h"
+ #include "der-encoder.h"
+ #include "convert.h"
+ 
+@@ -136,28 +137,36 @@ _ksba_der_encoder_set_writer (DerEncoder d, ksba_writer_t w)
+       parameters   ANY DEFINED BY algorithm OPTIONAL
+   }
+ 
+-  where parameters will be set to NULL if parm is NULL or to an octet
+-  string with the given parm.  As a special hack parameter will not be
+-  written if PARM is given but parmlen is 0.  */
++  where parameters will be set to NULL if params is NULL or to the
++  corresponding tags with the given values. As a special hack parameter
++  will not be written if params is not NULL but param_count is 0.
++  If param_count > 1 than they are wrapped in a SEQUENCE. */
+ gpg_error_t
+ _ksba_der_write_algorithm_identifier (ksba_writer_t w, const char *oid,
+-                                      const void *parm, size_t parmlen)
++									  struct algorithm_param_s *params,
++									  int param_count)
+ {
+   gpg_error_t err;
+   unsigned char *buf;
+   size_t len;
+-  int no_null = (parm && !parmlen);
++  int no_null = (params && !param_count);
+ 
+   err = ksba_oid_from_str (oid, &buf, &len);
+   if (err)
+     return err;
+ 
++  int i; size_t param_len = 0;
++  for (i = 0; i < param_count; i++)
++	param_len += params[i].length;
++
+   /* write the sequence */
+   /* fixme: the the length to encode the TLV values are actually not
+      just 2 byte each but depend on the length of the values - for
+      our purposes the static values do work.  */
+   err = _ksba_ber_write_tl (w, TYPE_SEQUENCE, CLASS_UNIVERSAL, 1,
+-                            (no_null? 2:4) + len + (parm? parmlen:0));
++                            2 + len + 2*param_count + param_len +
++							(param_count > 1 ? 2 : 0) +
++							(!params && !no_null ? 2 : 0));
+   if (err)
+     goto leave;
+ 
+@@ -171,12 +180,19 @@ _ksba_der_write_algorithm_identifier (ksba_writer_t w, const char *oid,
+   /* Write the parameter */
+   if (no_null)
+     ;
+-  else if (parm)
++  else if (params)
+     {
+-      err = _ksba_ber_write_tl (w, TYPE_OCTET_STRING, CLASS_UNIVERSAL,
+-                                0, parmlen);
+-      if (!err)
+-        err = ksba_writer_write (w, parm, parmlen);
++	  if (param_count > 1)
++		err = _ksba_ber_write_tl (w, TYPE_SEQUENCE, CLASS_UNIVERSAL, 1,
++								  2*param_count + param_len);
++	  for (i = 0; i < param_count; i++)
++		{
++		  if (err) break;
++		  err = _ksba_ber_write_tl (w, params[i].tag, params[i].class,
++									params[i].constructed, params[i].length);
++		  if (!err)
++			err = ksba_writer_write (w, params[i].value, params[i].length);
++		}
+     }
+   else
+     {
+@@ -355,6 +371,27 @@ _ksba_der_store_oid (AsnNode node, const char *oid)
+ }
+ 
+ 
++gpg_error_t
++_ksba_der_store_bit_string (AsnNode node, const char *buf, size_t bitlen)
++{
++  if (node->type == TYPE_ANY)
++    node->type = TYPE_BIT_STRING;
++
++  if (node->type == TYPE_BIT_STRING)
++    {
++	  unsigned char *bbuf = xtrymalloc (bitlen/8 + 1);
++	  if (!bbuf) return gpg_error (GPG_ERR_ENOMEM);
++	  memcpy (bbuf + 1, buf, bitlen / 8);
++	  *bbuf = bitlen % 8;
++      gpg_error_t err = store_value (node, bbuf, bitlen/8 + 1);
++	  xfree (bbuf);
++	  return err;
++    }
++  else
++    return gpg_error (GPG_ERR_INV_VALUE);
++}
++
++
+ gpg_error_t
+ _ksba_der_store_octet_string (AsnNode node, const char *buf, size_t len)
+ {
+diff --git a/src/der-encoder.h b/src/der-encoder.h
+index b33aa52..a324efe 100644
+--- a/src/der-encoder.h
++++ b/src/der-encoder.h
+@@ -46,8 +46,9 @@ gpg_error_t _ksba_der_encoder_set_writer (DerEncoder d, ksba_writer_t w);
+ gpg_error_t _ksba_der_write_integer (ksba_writer_t w,
+                                      const unsigned char *value);
+ gpg_error_t _ksba_der_write_algorithm_identifier (
+-            ksba_writer_t w, const char *oid, const void *parm, size_t parmlen);
+-
++                ksba_writer_t w, const char *oid,
++				struct algorithm_param_s *param,
++				int param_count);
+ 
+ 
+ gpg_error_t _ksba_der_copy_tree (AsnNode dst,
+@@ -59,6 +60,8 @@ gpg_error_t _ksba_der_store_time (AsnNode node, const ksba_isotime_t atime);
+ gpg_error_t _ksba_der_store_string (AsnNode node, const char *string);
+ gpg_error_t _ksba_der_store_integer (AsnNode node, const unsigned char *value);
+ gpg_error_t _ksba_der_store_oid (AsnNode node, const char *oid);
++gpg_error_t _ksba_der_store_bit_string (AsnNode node, const char *buf,
++										size_t bitlen);
+ gpg_error_t _ksba_der_store_octet_string (AsnNode node,
+                                         const char *buf, size_t len);
+ gpg_error_t _ksba_der_store_sequence (AsnNode node,
+diff --git a/src/keyinfo.c b/src/keyinfo.c
+index 265b475..10870ea 100644
+--- a/src/keyinfo.c
++++ b/src/keyinfo.c
+@@ -512,15 +512,112 @@ _ksba_parse_algorithm_identifier (const unsigned char *der, size_t derlen,
+                                             r_nread, r_oid, NULL, NULL);
+ }
+ 
++void
++release_algorithm_params (struct algorithm_param_s *algo_parm,
++						  int algo_parmcount)
++{
++  int i;
++
++  if (algo_parm)
++	{
++	  for (i = 0; i < algo_parmcount; i++)
++		xfree (algo_parm[i].value);
++	  xfree (algo_parm);
++	}
++}
++
++gpg_error_t
++parse_param_sequence (const unsigned char *der, size_t derlen,
++					  struct algorithm_param_s **r_parm,
++					  int *r_parmcount)
++{
++  gpg_error_t err = 0;
++  size_t len;
++  struct algorithm_param_s *parm = NULL;
++  int parmcount = 0;
++  int c;
++
++  if (r_parm) *r_parm = NULL;
++  if (r_parmcount) *r_parmcount = 0;
++
++  if (!derlen)
++    return gpg_error (GPG_ERR_INV_KEYINFO);
++
++  c = *der++; derlen--;
++  if ( c != 0x30 )
++    return gpg_error (GPG_ERR_UNEXPECTED_TAG); /* not a SEQUENCE */
++
++  TLV_LENGTH (der);
++  if (!len)
++	return gpg_error (GPG_ERR_INV_KEYINFO);
++
++  while (derlen)
++	{
++	  c = *der++; derlen--;
++	  parmcount++;
++	  struct algorithm_param_s *_parm =
++		xtryrealloc (parm, parmcount * sizeof (struct algorithm_param_s));
++	  if (!_parm)
++		{
++		  err = gpg_error (GPG_ERR_ENOMEM);
++		  goto leave;
++		}
++	  parm = _parm;
++	  parm[parmcount-1].tag = c & 0x1f;
++	  parm[parmcount-1].constructed = c & 0x20;
++	  parm[parmcount-1].class = c & 0xc0;
++	  TLV_LENGTH (der);
++	  if (len)
++		{
++		  parm[parmcount-1].value = xtrymalloc (len);
++		  if (!parm[parmcount-1].value)
++			{
++			  err = gpg_error (GPG_ERR_ENOMEM);
++			  goto leave;
++			}
++		  memcpy (parm[parmcount-1].value, der, len);
++		  parm[parmcount-1].length = len;
++		}
++	  else
++		{
++		  parm[parmcount-1].value = NULL;
++		  parm[parmcount-1].length = 0;
++		}
++	  der += len;
++	  if (len > derlen)
++		{
++		  err = gpg_error (GPG_ERR_BAD_BER);
++		  goto leave;
++		}
++	  derlen -= len;
++	}
++
++ leave:
++  if (err)
++	{
++	  release_algorithm_params (parm, parmcount);
++	}
++  else if (r_parm && r_parmcount)
++	{
++	  *r_parm = parm;
++	  *r_parmcount = parmcount;
++	}
++
++  return err;
++}
++
+ gpg_error_t
+ _ksba_parse_algorithm_identifier2 (const unsigned char *der, size_t derlen,
+                                    size_t *r_nread, char **r_oid,
+-                                   char **r_parm, size_t *r_parmlen)
++                                   struct algorithm_param_s **r_parm,
++                                   int *r_parmcount)
+ {
+   gpg_error_t err;
+   int is_bitstr;
+   size_t nread, off, len, off2, len2;
+   int parm_type;
++  struct algorithm_param_s *parm = NULL;
++  int parmcount = 0;
+ 
+   /* fixme: get_algorithm might return the error invalid keyinfo -
+      this should be invalid algorithm identifier */
+@@ -557,30 +654,50 @@ _ksba_parse_algorithm_identifier2 (const unsigned char *der, size_t derlen,
+           return gpg_error (GPG_ERR_ENOMEM);
+         }
+ 
+-      off2 = len2 = 0; /* So that R_PARM is set to NULL.  */
+-    }
++	  off2 = len2 = 0; /* So that R_PARM is set to NULL.  */
++	}
++
++  if (off2 && len2)
++	{
++	  if (parm_type == TYPE_SEQUENCE)
++		{
++		  err = parse_param_sequence (der + off2, len2, &parm, &parmcount);
++		}
++	  else
++		{
++		  parm = xtrycalloc (1, sizeof (struct algorithm_param_s));
++		  if (parm)
++			{
++			  parmcount = 1;
++			  parm->value = xtrymalloc (len2);
++			}
++		  if (!parm || !parm->value)
++			{
++			  err = gpg_error (GPG_ERR_ENOMEM);
++			  goto leave;
++			}
++		  parm->tag = parm_type;
++		  parm->class = CLASS_UNIVERSAL;
++		  parm->constructed = 0;
++		  memcpy (parm->value, der+off2, len2);
++		  parm->length = len2;
++		}
++	}
+ 
+-  if (r_parm && r_parmlen)
+-    {
+-      if (off2 && len2)
+-        {
+-          *r_parm = xtrymalloc (len2);
+-          if (!*r_parm)
+-            {
+-              xfree (*r_oid);
+-              *r_oid = NULL;
+-              return gpg_error (GPG_ERR_ENOMEM);
+-            }
+-          memcpy (*r_parm, der+off2, len2);
+-          *r_parmlen = len2;
+-        }
+-      else
+-        {
+-          *r_parm = NULL;
+-          *r_parmlen = 0;
+-        }
+-    }
+-  return 0;
++ leave:
++  if (err)
++	{
++	  xfree (*r_oid);
++	  *r_oid = NULL;
++	  release_algorithm_params (parm, parmcount);
++	}
++  else if (r_parm && r_parmcount)
++	{
++	  *r_parm = parm;
++	  *r_parmcount = parmcount;
++	}
++
++  return err;
+ }
+ 
+ 
+diff --git a/src/keyinfo.h b/src/keyinfo.h
+index a9c1b30..2967e69 100644
+--- a/src/keyinfo.h
++++ b/src/keyinfo.h
+@@ -33,6 +33,13 @@
+ 
+ #include "asn1-func.h"
+ 
++struct algorithm_param_s {
++  unsigned long tag;
++  enum tag_class class;
++  int constructed;
++  unsigned char *value;
++  unsigned long length;
++};
+ 
+ gpg_error_t
+ _ksba_parse_algorithm_identifier (const unsigned char *der,
+@@ -42,7 +49,8 @@ _ksba_parse_algorithm_identifier (const unsigned char *der,
+ gpg_error_t
+ _ksba_parse_algorithm_identifier2 (const unsigned char *der, size_t derlen,
+                                    size_t *r_nread, char **r_oid,
+-                                   char **r_parm, size_t *r_parmlen);
++                                   struct algorithm_param_s **r_parm,
++                                   int *r_parmcount);
+ 
+ 
+ gpg_error_t _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
+@@ -64,6 +72,11 @@ gpg_error_t _ksba_encval_to_sexp (const unsigned char *der, size_t derlen,
+ int _ksba_node_with_oid_to_digest_algo (const unsigned char *image,
+                                         AsnNode node);
+ 
++void release_algorithm_params (struct algorithm_param_s *algo_parm,
++							   int algo_parmcount);
+ 
++gpg_error_t parse_param_sequence (const unsigned char *der, size_t derlen,
++								  struct algorithm_param_s **r_parm,
++								  int *r_parmcount);
+ 
+ #endif /*KEYINFO_H*/

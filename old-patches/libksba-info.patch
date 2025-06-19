@@ -1,0 +1,11 @@
+--- libksba-0.9.11/doc/ksba.texi~	2005-06-21 17:57:08 +0400
++++ libksba-0.9.11/doc/ksba.texi	2005-06-21 17:57:13 +0400
+@@ -2,7 +2,7 @@
+ @setfilename ksba.info
+ @settitle The KSBA Reference Manual
+ 
+-@dircategory GNU libraries
++@dircategory Libraries
+ @direntry
+ * libksba: (ksba).              An X.509 Library.
+ @end direntry
