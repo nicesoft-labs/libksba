@@ -126,6 +126,15 @@ create_and_run_decoder (ksba_reader_t reader, const char *elem_name,
 }
 
 #ifdef KSBA_TESTING
+/* Forward declaration for the test wrapper.  */
+static gpg_error_t
+parse_encrypted_content_info (ksba_reader_t reader,
+                              unsigned long *r_len, int *r_ndef,
+                              char **r_cont_oid, char **r_algo_oid,
+                              struct algorithm_param_s **r_algo_parm,
+                              int *r_algo_parmcount,
+                              int *r_algo_parmtype,
+                              int *has_content);
 /* Test wrapper to access the internal function.  */
 gpg_error_t
 _ksba_test_parse_encrypted_content_info (ksba_reader_t reader,
