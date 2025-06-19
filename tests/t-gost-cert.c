@@ -7,6 +7,8 @@
 #define _KSBA_VISIBILITY_DEFAULT
 #include "../src/keyinfo.h"
 #include "t-common.h"
+#include <ctype.h>
+#include <unistd.h>
 
 static int b64_val(unsigned char c)
 {
