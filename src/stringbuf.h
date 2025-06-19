@@ -143,6 +143,16 @@ put_stringbuf_mem_sexp (struct stringbuf *sb, const char *text, size_t length)
   put_stringbuf_mem (sb, text, length);
 }
 
+static inline void
+put_stringbuf_mem_sexp_rs (struct stringbuf *sb,
+                           const unsigned char *text, size_t length)
+{
+  char buf[20];
+  sprintf (buf, "%u:", (unsigned int)length);
+  put_stringbuf (sb, buf);
+  put_stringbuf_mem_rs (sb, text, length);
+}
+
 
 static inline void
 put_stringbuf_sexp (struct stringbuf *sb, const char *text)
