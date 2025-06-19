@@ -50,7 +50,8 @@ gpg_error_t
 _ksba_parse_algorithm_identifier2 (const unsigned char *der, size_t derlen,
                                    size_t *r_nread, char **r_oid,
                                    struct algorithm_param_s **r_parm,
-                                   int *r_parmcount);
+                                   int *r_parmcount)
+     _KSBA_VISIBILITY_DEFAULT;
 
 gpg_error_t
 _ksba_parse_algorithm_identifier3 (const unsigned char *der, size_t derlen,
@@ -91,7 +92,8 @@ int _ksba_node_with_oid_to_digest_algo (const unsigned char *image,
                                         AsnNode node);
 
 void release_algorithm_params (struct algorithm_param_s *algo_parm,
-							   int algo_parmcount);
+                                                          int algo_parmcount)
+     _KSBA_VISIBILITY_DEFAULT;
  
 gpg_error_t parse_param_sequence (const unsigned char *der, size_t derlen,
 								  struct algorithm_param_s **r_parm,
