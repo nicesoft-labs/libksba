@@ -103,6 +103,11 @@ char *_ksba_stpcpy (char *a, const char *b);
 
 int _ksba_ascii_memcasecmp (const void *a_arg, const void *b_arg, size_t n);
 #define ascii_memcasecmp(a,b,n) _ksba_ascii_memcasecmp ((a),(b),(n))
+struct stringbuf;
+void put_stringbuf_mem_rs (struct stringbuf *sb,
+                           const unsigned char *buf, size_t n);
+void _ksba_flip_ecc_key (const unsigned char *key, size_t len,
+                         unsigned char *r_key);
 
 /* some macros to replace ctype ones and avoid locale problems */
 #define spacep(p)   (*(p) == ' ' || *(p) == '\t')
