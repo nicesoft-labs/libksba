@@ -55,7 +55,7 @@ BUILT_SOURCES = oidtranstbl.h
 CLEANFILES = oidtranstbl.h
 
 TESTS = cert-basic t-crl-parser t-dnparser t-oid t-reader t-cms-parser \
-	t-der-builder t-gost
+	t-der-builder t-gost t-gost-signed
 
 AM_CFLAGS = $(GPG_ERROR_CFLAGS) $(COVERAGE_CFLAGS)
 if HAVE_W32_SYSTEM
