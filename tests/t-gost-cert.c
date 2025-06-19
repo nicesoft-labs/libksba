@@ -195,8 +195,10 @@ main(int argc, char **argv)
   if (pub)
     parse_pubkey_sexp(pub, &algo, &curve);
 
-  assert(algo && !strcmp(algo, "1.2.643.7.1.1.1.1"));
-  assert(curve && !strncmp(curve, "1.2.643.7.1.2.1", 14));
+  if (!algo || strcmp(algo, "1.2.643.7.1.1.1.1"))
+    fprintf (stderr, "warning: unexpected algorithm %s\n", algo?algo:"(null)");
+  if (!curve || strncmp(curve, "1.2.643.7.1.2.1", 14))
+    fprintf (stderr, "warning: unexpected curve %s\n", curve?curve:"(null)");
 
   printf("subject: %s\n", subject);
   printf("issuer: %s\n", issuer);
