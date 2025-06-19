@@ -172,7 +172,9 @@ main (int argc, char **argv)
 
   err = ksba_cert_is_ca (cert, &is_ca, &pathlen);
   fail_if_err (err);
-  assert (is_ca);
+  /* The sample certificate does not contain the basic constraints
+     extension and thus should not be considered a CA certificate.  */
+  assert (!is_ca);
 
   serial = ksba_cert_get_serial (cert);
   sexp_extract_octets (serial, &serbuf, &serlen);
