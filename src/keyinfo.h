@@ -33,6 +33,13 @@
 
 #include "asn1-func.h"
 
+struct algorithm_param_s {
+  unsigned long tag;
+  enum tag_class class;
+  int constructed;
+  unsigned char *value;
+  unsigned long length;
+};
 
 gpg_error_t
 _ksba_parse_algorithm_identifier (const unsigned char *der,
@@ -42,7 +49,8 @@ _ksba_parse_algorithm_identifier (const unsigned char *der,
 gpg_error_t
 _ksba_parse_algorithm_identifier2 (const unsigned char *der, size_t derlen,
                                    size_t *r_nread, char **r_oid,
-                                   char **r_parm, size_t *r_parmlen);
+                                   struct algorithm_param_s **r_parm,
+                                   int *r_parmcount);
 
 gpg_error_t
 _ksba_parse_algorithm_identifier3 (const unsigned char *der, size_t derlen,
@@ -81,6 +89,11 @@ gpg_error_t _ksba_encval_kari_to_sexp (const unsigned char *der, size_t derlen,
 int _ksba_node_with_oid_to_digest_algo (const unsigned char *image,
                                         AsnNode node);
 
-
+void release_algorithm_params (struct algorithm_param_s *algo_parm,
+							   int algo_parmcount);
+ 
+gpg_error_t parse_param_sequence (const unsigned char *der, size_t derlen,
+								  struct algorithm_param_s **r_parm,
+								  int *r_parmcount);
 
 #endif /*KEYINFO_H*/
