@@ -608,6 +608,7 @@ ksba_cms_release (ksba_cms_t cms)
     }
   xfree (cms->inner_cont_oid);
   xfree (cms->encr_algo_oid);
+  xfree (cms->encr_algo_sbox_oid);
   xfree (cms->encr_iv);
   xfree (cms->authdata.mac);
   xfree (cms->authdata.attr);
@@ -740,7 +741,7 @@ ksba_content_type_t
 ksba_cms_get_content_type (ksba_cms_t cms, int what)
 {
   int i;
-
+  gpg_error_t err = 0;
   if (!cms)
     return 0;
   if (!what)
@@ -772,6 +773,8 @@ ksba_cms_get_content_oid (ksba_cms_t cms, int what)
     return cms->inner_cont_oid;
   if (what == 2)
     return cms->encr_algo_oid;
+  if (what == 3)
+    return cms->encr_algo_sbox_oid;
   return NULL;
 }
 
@@ -1988,7 +1991,147 @@ ksba_cms_set_signing_time (ksba_cms_t cms, int idx, const ksba_isotime_t sigtime
     _ksba_copy_time (cl->signing_time, sigtime);
   return 0;
 }
-
+typedef struct {
+      const char *name;
+      const unsigned char *value;
+      size_t len;
+    } parsed_values_t;
+    
+    static gpg_error_t
+    read_values (const unsigned char **s, const char * const *params,
+    			 int count, parsed_values_t *values)
+    {
+      unsigned long n;
+      gpg_error_t err = 0;
+    
+      while (**s == '(')
+        {
+    	  (*s)++;
+    	  if (!(n = snext (s)))
+    		{
+    		  err = gpg_error (GPG_ERR_INV_SEXP);
+    		  goto exit;
+    		}
+    
+    	  int validx = 0;
+    
+    	  if (0 == count)
+    		(*s) += n; /* ignore the name of the parameter */
+    	  else
+    		{
+    		  while (validx < count && !smatch (s, n, params[validx]))
+    			validx++;
+    		}
+    
+    	  if (!digitp(*s) || !(n = snext (s)))
+    		{
+    		  err = gpg_error (GPG_ERR_INV_SEXP);
+    		  goto exit;
+    		}
+    
+          if (!count || validx < count)
+            {
+              if (count)
+                values[validx].name = params[validx];
+              values[validx].value = *s;
+              values[validx].len = n;
+            }
+    
+    	  (*s) += n;
+    
+    	  if ( **s != ')')
+    		return  gpg_error (GPG_ERR_INV_SEXP);
+    	  (*s)++;
+    	}
+    
+     exit:
+    
+      return err;
+    }
+    
+    static gpg_error_t
+    pack_values (const parsed_values_t *values, int count,
+    			 unsigned char **value, size_t *valuelen)
+    {
+      int validx;
+      gpg_error_t err = 0;
+    
+      *valuelen = 0;
+      for (validx = 0; validx < (count ? count : 1); validx++)
+    	*valuelen += values[validx].len;
+    
+      *value = xtrymalloc (*valuelen);
+      if (!*value)
+    	return gpg_error (GPG_ERR_ENOMEM);
+    
+      for (validx = 0; validx < (count ? count : 1); validx++)
+    	memcpy (*value + (validx ? values[validx-1].len : 0),
+    			values[validx].value, values[validx].len);
+    
+      return err;
+    }
+    
+    static const char *
+    curve_oid_to_key_algo (const char *curve, size_t curve_len,
+                           const char *digest, size_t digest_len)
+    {
+      if (curve)
+        {
+              // GOST2001-CryptoPro-A,B,C
+          if ((curve_len > 15 && 0 == strncmp (curve, "1.2.643.2.2.35.", 15)) ||
+              (curve_len > 15 && 0 == strncmp (curve, "1.2.643.2.2.36.", 15)))
+            {
+              if (digest && 17 == digest_len &&
+                  0 == strncmp (digest, "1.2.643.7.1.1.2.2", 17))
+                return "1.2.643.7.1.1.1.1";
+              else
+                return "1.2.643.2.2.19";
+            }
+    
+              // GOST2012-256-A,B,C,D
+          if (curve_len > 18 && 0 == strncmp (curve, "1.2.643.7.1.2.1.1.", 18))
+            return "1.2.643.7.1.1.1.1";
+    
+              // GOST2012-512-A,B
+          if (curve_len > 18 && 0 == strncmp (curve, "1.2.643.7.1.2.1.2.", 18))
+            return "1.2.643.7.1.1.1.2";
+        }
+    
+      return NULL;
+    }
+    
+    static const char *
+    key_algo_to_digest_algo (const char *value, size_t len)
+    {
+      if (value)
+        {
+          if (0 == strncmp (value, "1.2.643.2.2.19", len))
+            return "1.2.643.2.2.30.1";
+          else if (0 == strncmp (value, "1.2.643.7.1.1.1.1", len))
+            return "1.2.643.7.1.1.2.2";
+          else if (0 == strncmp (value, "1.2.643.7.1.1.1.2", len))
+            return "1.2.643.7.1.1.2.3";
+        }
+    
+      return NULL;
+    }
+    
+    static const char *
+    digest_algo_to_key_algo (const char *value, size_t len)
+    {
+      if (value)
+        {
+          if (0 == strncmp (value, "1.2.643.2.2.9", len) ||
+              0 == strncmp (value, "1.2.643.2.2.30.1", len))
+            return "1.2.643.2.2.19";
+          else if (0 == strncmp (value, "1.2.643.7.1.1.2.2", len))
+            return "1.2.643.7.1.1.1.1";
+          else if (0 == strncmp (value, "1.2.643.7.1.1.2.3", len))
+            return "1.2.643.7.1.1.1.2";
+        }
+    
+      return NULL;
+    }
 
 /* Set the signature value as a canonical encoded s-expression.
  *
@@ -2039,7 +2182,7 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
     return gpg_error (digitp (s)? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
   s++;
 
-  /* Break out the algorithm ID. */
+  /* Break out the parameters. */
   if (!(n = snext (&s)))
     return gpg_error (GPG_ERR_INV_SEXP);
 
@@ -2204,7 +2347,21 @@ ksba_cms_set_content_enc_algo (ksba_cms_t cms,
   cms->encr_iv = NULL;
   cms->encr_ivlen = 0;
 
-  cms->encr_algo_oid = xtrystrdup (oid);
+  if (0 == strncmp (oid, "1.2.643.2.2.31.", 15) ||
+      0 == strcmp (oid, "1.2.643.7.1.2.5.1.1"))
+    {
+      /* GOST-28147 S-box. Set both the algo OID and the S-box OID. */
+      cms->encr_algo_oid = xtrystrdup ("1.2.643.2.2.21");
+      cms->encr_algo_sbox_oid = xtrystrdup (oid);
+    }
+  else
+    {
+      cms->encr_algo_oid = xtrystrdup (oid);
+      /* Clear the S-box if any. */
+      xfree (cms->encr_algo_sbox_oid);
+      cms->encr_algo_sbox_oid = NULL;
+    }
+
   if (!cms->encr_algo_oid)
     return gpg_error (GPG_ERR_ENOMEM);
 
@@ -2219,6 +2376,343 @@ ksba_cms_set_content_enc_algo (ksba_cms_t cms,
   return 0;
 }
 
+struct algorithm_param_s algo_params_oid = {
+      .tag = TYPE_OBJECT_ID,
+      .class = CLASS_UNIVERSAL,
+      .constructed = 0
+    };
+    
+    static gpg_error_t
+    store_algorithm_id (AsnNode n, const unsigned char *algo,
+                        struct algorithm_param_s *algo_params,
+                        int algo_params_count)
+    {
+      ksba_writer_t param_wrt = NULL;
+      unsigned char *params = NULL;
+      size_t paramslen;
+      gpg_error_t err = 0;
+    
+      if (!algo)
+    	return gpg_error (GPG_ERR_MISSING_VALUE);
+    
+      if (!algo_params)
+        {
+          if (strcmp (algo, "1.2.643.2.2.19") == 0 ||
+              strcmp (algo, "1.2.643.7.1.1.1.1") == 0)
+            {
+              const unsigned char *oid1_str;
+              const unsigned char *oid2_str;
+              struct algorithm_param_s def_algo_params[2];
+              def_algo_params[0] = algo_params_oid;
+              def_algo_params[1] = algo_params_oid;
+    
+          	  if (strcmp (algo, "1.2.643.2.2.19") == 0)
+                {
+                  oid1_str = "1.2.643.2.2.35.1";
+                  oid2_str = "1.2.643.2.2.30.1";
+                }
+              else /* "1.2.643.7.1.1.1.1" */
+                {
+                  oid1_str = "1.2.643.7.1.2.1.1.1";
+                  oid2_str = "1.2.643.7.1.1.2.2";
+                }
+              err = ksba_oid_from_str (oid1_str, &def_algo_params[0].value,
+                                       &def_algo_params[0].length);
+              if (!err)
+                err = ksba_oid_from_str (oid2_str, &def_algo_params[1].value,
+                                         &def_algo_params[1].length);
+    
+              algo_params = def_algo_params;
+              algo_params_count = 2;
+            }
+        }
+    
+      if (err) return err;
+    
+      err = ksba_writer_new (&param_wrt);
+      if (!err)
+    	err = ksba_writer_set_mem (param_wrt, 512);
+      if (!err)
+    	err = _ksba_der_write_algorithm_identifier (param_wrt, algo,
+    												algo_params_count ?
+    												  algo_params : NULL,
+    												algo_params_count);
+      if (!err)
+    	{
+    	  params = ksba_writer_snatch_mem (param_wrt, &paramslen);
+    	  if (!params)
+    		err = gpg_error (GPG_ERR_ENOMEM);
+    	}
+      if (!err)
+    	{
+    	  n->type = TYPE_PRE_SEQUENCE;
+    	  err = _ksba_der_store_sequence (n, params + 2, paramslen - 2);
+    	}
+    
+      xfree (params);
+      ksba_writer_release (param_wrt);
+    
+      return err;
+    }
+    
+    static const parsed_values_t *
+    find_value (const char *name, const parsed_values_t *values, int count)
+    {
+      for (int i = 0; i < count; i++)
+        if (0 == strcmp (values[i].name, name))
+          return &(values[i]);
+    
+      return NULL;
+    }
+    
+    static gpg_error_t
+    transform_gost_values_to_cms (const parsed_values_t *values, int count,
+                                  struct enc_val_s *enc_val)
+    {
+      AsnNode root, n;
+      ksba_asn_tree_t cms_tree = NULL;
+      ksba_writer_t ekey_wrt = NULL;
+      unsigned char *ekey_buf = NULL;
+      size_t ekey_len;
+      unsigned char *tmp2 = NULL;
+      gpg_error_t err = 0;
+    
+      char *_sbox = NULL;
+      char *_digest_oid = NULL;
+      char *_curve = NULL;
+      char *_ukm = NULL;
+    
+      /* Required arguments */
+      const parsed_values_t *q = find_value ("q", values, count);
+      if (!q || !q->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *ukm = find_value ("ukm", values, count);
+      if (!ukm || !ukm->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *ciphertext = find_value ("s", values, count);
+      if (!ciphertext || !ciphertext->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *curve = find_value ("curve", values, count);
+      if (!curve || !curve->value) return gpg_error (GPG_ERR_INV_ARG);
+      const parsed_values_t *sbox = find_value ("sbox", values, count);
+      if (!sbox || !sbox->value) return gpg_error (GPG_ERR_INV_ARG);
+    
+      /* Optional arguments */
+      const parsed_values_t *algo = find_value ("algo", values, count);
+      const parsed_values_t *digest = find_value ("digest", values, count);
+    
+      if (ciphertext->len != 32 + 4 || ((q->len % 2) && *(q->value) != 0x04))
+    	return gpg_error (GPG_ERR_INV_VALUE);
+    
+      err = ksba_asn_create_tree ("cms", &cms_tree);
+      if (err) return err;
+    
+      root = _ksba_asn_expand_tree (cms_tree->parse_tree,
+    			  "CryptographicMessageSyntax.GostR3410-KeyTransport");
+    
+      /* Store the GOST-28147 256-bit key */
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.sessionEncryptedKey.encryptedKey");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+      err = _ksba_der_store_octet_string (n, ciphertext->value, 32);
+      if (err) goto exit;
+    
+      /* Store the 32-bit MAC */
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.sessionEncryptedKey.macKey");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+      err = _ksba_der_store_octet_string (n, ciphertext->value + 32, 4);
+      if (err) goto exit;
+    
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..encryptionParamSet");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+      _sbox = xtrymalloc (sbox->len + 1);
+      if (!_sbox)
+        {
+          err = gpg_error_from_syserror ();
+          goto exit;
+        }
+      memcpy (_sbox, sbox->value, sbox->len);
+      _sbox[sbox->len] = '\0';
+      err = _ksba_der_store_oid (n, _sbox);
+      if (err) goto exit;
+    
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..ephemeralPublicKey..algorithm");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+    
+      if (!enc_val->algo)
+        {
+          if (algo)
+            {
+              enc_val->algo = xtrymalloc (algo->len + 1);
+              if (!enc_val->algo)
+                {
+                  err = gpg_error_from_syserror ();
+                  goto exit;
+                }
+              memcpy (enc_val->algo, algo->value, algo->len);
+              enc_val->algo[algo->len] = '\0';
+            }
+          else
+            {
+              const char *algo_oid = curve_oid_to_key_algo (curve->value,
+                                                            curve->len,
+                                                            digest ?
+                                                              digest->value : NULL,
+                                                            digest ?
+                                                            digest->len : 0);
+              if (!algo_oid)
+                {
+                  err = gpg_error (GPG_ERR_UNKNOWN_ALGORITHM);
+                  goto exit;
+                }
+              enc_val->algo = xtrystrdup (algo_oid);
+              if (!enc_val->algo)
+                {
+                  err = gpg_error_from_syserror ();
+                  goto exit;
+                }
+            }
+        }
+    
+      const char *digest_oid = NULL;
+      if (digest && digest->value)
+        {
+          _digest_oid = xtrymalloc (digest->len + 1);
+          if (!_digest_oid)
+            {
+              err = gpg_error_from_syserror ();
+              goto exit;
+            }
+          memcpy (_digest_oid, digest->value, digest->len);
+          _digest_oid[digest->len] = '\0';
+          digest_oid = _digest_oid;
+        }
+      else
+        {
+          digest_oid = key_algo_to_digest_algo (enc_val->algo,
+                                                strlen (enc_val->algo));
+          if (!digest_oid)
+            {
+              err = gpg_error (GPG_ERR_UNKNOWN_ALGORITHM);
+              goto exit;
+            }
+        }
+    
+      struct algorithm_param_s pk_algo_params[2];
+    
+      _curve = xtrymalloc (curve->len + 1);
+      if (!_curve)
+        {
+          err = gpg_error_from_syserror ();
+          goto exit;
+        }
+      memcpy (_curve, curve->value, curve->len);
+      _curve[curve->len] = '\0';
+      pk_algo_params[0] = algo_params_oid;
+      err = ksba_oid_from_str (_curve, &pk_algo_params[0].value,
+                               &pk_algo_params[0].length);
+      if (err) goto exit;
+    
+      pk_algo_params[1] = algo_params_oid;
+      err = ksba_oid_from_str (digest_oid, &pk_algo_params[1].value,
+                               &pk_algo_params[1].length);
+      if (err) goto exit;
+    
+      err = store_algorithm_id (n, enc_val->algo, pk_algo_params, 2);
+      if (err) goto exit;
+    
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..ephemeralPublicKey..subjectPublicKey");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+    
+      err = ksba_writer_new (&ekey_wrt);
+      if (err) goto exit;
+    
+      err = ksba_writer_set_mem (ekey_wrt, 256); // bytes
+      if (err) goto exit;
+    
+      err = _ksba_ber_write_tl (ekey_wrt, TYPE_OCTET_STRING,
+    							CLASS_UNIVERSAL, 0,
+    							(q->len % 2) ? q->len - 1 : q->len);
+      if (err) goto exit;
+    
+      unsigned int ekey_offs = 0;
+      if (q->len % 2)
+    	ekey_offs = 1; /* Uncompressed point */
+    
+      tmp2 = _ksba_xmalloc (q->len - ekey_offs);
+      if (!tmp2)
+    	{
+    	  err = gpg_error (GPG_ERR_ENOMEM);
+    	  goto  exit;
+    	}
+      _ksba_flip_ecc_key (q->value + ekey_offs, q->len - ekey_offs, tmp2);
+    
+      err = ksba_writer_write (ekey_wrt, tmp2, q->len - ekey_offs);
+      if (err) goto exit;
+    
+      ekey_buf = ksba_writer_snatch_mem (ekey_wrt, &ekey_len);
+      if (!ekey_buf)
+    	{
+    	  err = gpg_error (GPG_ERR_ENOMEM);
+    	  goto exit;
+    	}
+    
+      err = _ksba_der_store_bit_string (n, ekey_buf, ekey_len * 8);
+      if (err) goto exit;
+    
+      /* Store the UKM */
+      n = _ksba_asn_find_node (root, "GostR3410-KeyTransport.transportParameters..ukm");
+      if (!n)
+    	{
+    	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+    	  goto exit;
+    	}
+    
+      _ukm = xtrymalloc (ukm->len);
+      if (!_ukm)
+        {
+          err = gpg_error_from_syserror ();
+          goto exit;
+        }
+      /* Put UKM in reverse byte order (LSB) */
+      for (int i = 0; i < ukm->len; i++)
+        _ukm[i] = ukm->value[ukm->len - 1 - i];
+      err = _ksba_der_store_octet_string (n, _ukm, ukm->len);
+    
+      if (err) goto exit;
+    
+      xfree (enc_val->value);
+      err = _ksba_der_encode_tree (root, &enc_val->value, &enc_val->valuelen);
+    
+     exit:
+      _ksba_asn_release_nodes (root);
+      xfree (ekey_buf);
+      ksba_writer_release (ekey_wrt);
+      ksba_asn_tree_release (cms_tree);
+      xfree (tmp2);
+      xfree (_sbox);
+      xfree (_curve);
+      xfree (_digest_oid);
+      xfree (_ukm);
+    
+      return err;
+    }
 
 /*
  * encval is expected to be a canonical encoded  S-Exp of this form:
@@ -2232,7 +2726,7 @@ ksba_cms_set_content_enc_algo (ksba_cms_t cms,
  *	))
  *
  * Note the <algo> must be given as a stringified OID or the special
- * string "rsa".  For RSA there is just one parameter named "a";
+ * strings "rsa" or "gost".  For RSA there is just one parameter named "a";
  * encr-algo and wrap-algo are also not used.  For ECC <algo> must be
  * "ecdh", the parameter "s" gives the encrypted key, "e" specified
  * the ephemeral public key, and wrap-algo algo and encr-algo are the
@@ -2243,8 +2737,10 @@ ksba_cms_set_enc_val (ksba_cms_t cms, int idx, ksba_const_sexp_t encval)
   /*FIXME: This shares most code with ...set_sig_val */
   struct certlist_s *cl;
   const char *s, *endp, *name;
+  const unsigned char *s;
   unsigned long n, namelen;
   int ecdh = 0;   /* We expect ECC parameters.  */
+  gpg_error_t err = 0;
 
   if (!cms)
     return gpg_error (GPG_ERR_INV_VALUE);
