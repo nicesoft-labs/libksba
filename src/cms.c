@@ -1439,8 +1439,10 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
   int parmcount = 0;
   unsigned char *parm2 = NULL;
   size_t parm2len = 0;
-  char *parm3 = NULL;
-  size_t parm3len;
+  struct algorithm_param_s *parm3 = NULL;
+  int parm3count = 0;
+  unsigned char *parm3buf = NULL;
+  size_t parm3len = 0;
   char *keywrapalgo = NULL; /* Key wrap algo.  */
   char *keyderivealgo = NULL; /* Key derive algo.  */
   struct tag_info ti;
@@ -1625,9 +1627,23 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
           err = _ksba_parse_algorithm_identifier3 (vt->image + n->off,
                                                    n->nhdr + n->len, 0xa0, NULL,
                                                    &keyderivealgo,
-                                                   &parm3, &parm3len, NULL);
+                                                   &parm3, &parm3count, NULL);
           if (err)
             goto leave;
+          if (parm3count > 0)
+            {
+              parm3len = parm3[0].length;
+              parm3buf = xtrymalloc (parm3len);
+              if (!parm3buf)
+                {
+                  err = gpg_error (GPG_ERR_ENOMEM);
+                  goto leave;
+                }
+              memcpy (parm3buf, parm3[0].value, parm3len);
+            }
+          release_algorithm_params (parm3, parm3count);
+          parm3 = NULL;
+          parm3count = 0;
         }
 
       n = _ksba_asn_find_node (root, "pwri..encryptedKey");
@@ -1658,12 +1674,12 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
 
         init_stringbuf (&sb, 200);
         put_stringbuf (&sb, "(7:enc-val(4:pwri");
-        if (keyderivealgo && parm3)
+        if (keyderivealgo && parm3buf)
           {
             put_stringbuf (&sb, "(11:derive-algo");
             put_stringbuf_sexp (&sb, keyderivealgo);
             put_stringbuf (&sb, ")(11:derive-parm");
-            put_stringbuf_mem_sexp (&sb, parm3, parm3len);
+            put_stringbuf_mem_sexp (&sb, parm3buf, parm3len);
             put_stringbuf (&sb, ")");
           }
         put_stringbuf (&sb, "(9:encr-algo");
@@ -1689,7 +1705,7 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
   xfree (keyderivealgo);
   release_algorithm_params (parm, parmcount);
   xfree (parm2);
-  xfree (parm3);
+  xfree (parm3buf);
   if (err)
     {
       /* gpgrt_log_debug ("%s: error: %s\n", __func__, gpg_strerror (err)); */
