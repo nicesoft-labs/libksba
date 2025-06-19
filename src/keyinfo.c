@@ -283,6 +283,35 @@ static const struct algo_table_s sig_algo_table[] = {
     "1.3.101.113", /* Ed448 */
     "\x2b\x65\x71", 3,
     1, PKALGO_ED448, "eddsa", "", "", NULL, NULL, NULL },
+  {  /* iso.member-body.ru.rans.cryptopro.3 */
+    "1.2.643.2.2.3", /* gostR3411-94-with-gostR3410-2001 */
+    "\x2A\x85\x03\x02\x02\x03", 6,
+    1, PKALGO_GOST, "1.2.643.2.2.3", "S", "\x82", NULL, NULL, "gostr3411" },
+
+  { /* iso.member-body.ru.rans.cryptopro.gostR3410-2001 */
+    "1.2.643.2.2.19",
+    "\x2a\x85\x03\x02\x02\x13", 6,
+    1, PKALGO_GOST, "1.2.643.2.2.19", "S", "\x82", NULL, NULL, "gostr3411" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-256 */
+    "1.2.643.7.1.1.1.1",
+    "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
+    1, PKALGO_GOST, "1.2.643.7.1.1.1.1", "S", "\x82", NULL, NULL, "streebog256" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-512 */
+    "1.2.643.7.1.1.1.2",
+    "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
+    1, PKALGO_GOST, "1.2.643.7.1.1.1.2", "S", "\x82", NULL, NULL, "streebog512" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.signwithdigest.gost3410-12-256 */
+    "1.2.643.7.1.1.3.2",
+    "\x2a\x85\x03\x07\x01\x01\x03\x02", 8,
+    1, PKALGO_GOST, "1.2.643.7.1.1.3.2", "S", "\x82", NULL, NULL, "streebog256" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.signwithdigest.gost3410-12-512 */
+    "1.2.643.7.1.1.3.3",
+    "\x2a\x85\x03\x07\x01\x01\x03\x03", 8,
+    1, PKALGO_GOST, "1.2.643.7.1.1.3.3", "S", "\x82", NULL, NULL, "streebog512" },
 
   {NULL}
 };
@@ -296,6 +325,21 @@ static const struct algo_table_s enc_algo_table[] = {
    "1.2.840.10045.2.1", /* ecPublicKey */
    "\x2a\x86\x48\xce\x3d\x02\x01", 7,
    1, PKALGO_ECC, "ecdh", "e", "\x80" },
+
+  { /* iso.member-body.ru.rans.cryptopro.gostR3410-2001 */
+   "1.2.643.2.2.19",
+   "\x2a\x85\x03\x02\x02\x13", 6,
+   1, PKALGO_GOST, "1.2.643.2.2.19", "e", "\x80" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-256 */
+   "1.2.643.7.1.1.1.1",
+   "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
+   1, PKALGO_GOST, "1.2.643.7.1.1.1.1", "e", "\x80" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-512 */
+   "1.2.643.7.1.1.1.2",
+   "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
+   1, PKALGO_GOST, "1.2.643.7.1.1.1.2", "e", "\x80" },
   {NULL}
 };
 
@@ -1418,6 +1462,11 @@ _ksba_keyinfo_from_sexp (ksba_const_sexp_t sexp, int algoinfomode,
     case PKALGO_X25519:
     case PKALGO_ED448:
     case PKALGO_X448:
+      parmdesc = algoinfomode? "" : "q";
+      if (curve_oid)
+        algo_oid = curve_oid;
+      break;
+    case PKALGO_GOST:
       parmdesc = algoinfomode? "" : "q";
       if (curve_oid)
         algo_oid = curve_oid;
