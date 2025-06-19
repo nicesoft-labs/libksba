@@ -67,6 +67,9 @@ static gpg_error_t ct_build_enveloped_data (ksba_cms_t cms);
 static gpg_error_t ct_build_digested_data (ksba_cms_t cms);
 static gpg_error_t ct_build_encrypted_data (ksba_cms_t cms);
 
+static void _ksba_flip_ecc_key(const unsigned char *in, size_t len, unsigned char *out);
+
+
 static struct {
   const char *oid;
   ksba_content_type_t ct;
@@ -2198,9 +2201,7 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
     gpg_error_t err = 0;
     unsigned long n;
     struct sig_val_s *sv, **sv_tail;
-    const unsigned char *s, *endp;
-    const unsigned char *name;
-    unsigned long namelen;
+
     int i, ecc;
 
     if (!cms)
@@ -2949,7 +2950,7 @@ cleanup:
    big-endian representation.  LEN must be even and IN must not
    include the optional uncompressed point prefix.  */
 static void
-_ksba_flip_ecc_key (const unsigned char *in, size_t len, unsigned char *out)
+_ksba_flip_ecc_key(const unsigned char *in, size_t len, unsigned char *out)
 {
   size_t n = len / 2;
   size_t i;
