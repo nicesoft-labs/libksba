@@ -56,7 +56,8 @@ gpg_error_t
 _ksba_parse_algorithm_identifier3 (const unsigned char *der, size_t derlen,
                                    int firsttag,
                                    size_t *r_nread, char **r_oid,
-                                   char **r_parm, size_t *r_parmlen,
+                                   struct algorithm_param_s **r_parm,
+                                   int *r_parmcount,
                                    int *r_parmtype);
 
 
