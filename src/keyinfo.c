@@ -746,11 +746,106 @@ _ksba_parse_algorithm_identifier (const unsigned char *der, size_t derlen,
                                             r_nread, r_oid, NULL, NULL, NULL);
 }
 
+void
+release_algorithm_params (struct algorithm_param_s *algo_parm,
+						  int algo_parmcount)
+{
+  int i;
+
+  if (algo_parm)
+	{
+	  for (i = 0; i < algo_parmcount; i++)
+		xfree (algo_parm[i].value);
+	  xfree (algo_parm);
+	}
+}
+
+gpg_error_t
+parse_param_sequence (const unsigned char *der, size_t derlen,
+					  struct algorithm_param_s **r_parm,
+					  int *r_parmcount)
+{
+  gpg_error_t err = 0;
+  size_t len;
+  struct algorithm_param_s *parm = NULL;
+  int parmcount = 0;
+  int c;
+
+  if (r_parm) *r_parm = NULL;
+  if (r_parmcount) *r_parmcount = 0;
+
+  if (!derlen)
+    return gpg_error (GPG_ERR_INV_KEYINFO);
+
+  c = *der++; derlen--;
+  if ( c != 0x30 )
+    return gpg_error (GPG_ERR_UNEXPECTED_TAG); /* not a SEQUENCE */
+
+  TLV_LENGTH (der);
+  if (!len)
+	return gpg_error (GPG_ERR_INV_KEYINFO);
+
+  while (derlen)
+	{
+	  c = *der++; derlen--;
+	  parmcount++;
+	  struct algorithm_param_s *_parm =
+		xtryrealloc (parm, parmcount * sizeof (struct algorithm_param_s));
+	  if (!_parm)
+		{
+		  err = gpg_error (GPG_ERR_ENOMEM);
+		  goto leave;
+		}
+	  parm = _parm;
+	  parm[parmcount-1].tag = c & 0x1f;
+	  parm[parmcount-1].constructed = c & 0x20;
+	  parm[parmcount-1].class = c & 0xc0;
+	  TLV_LENGTH (der);
+	  if (len)
+		{
+		  parm[parmcount-1].value = xtrymalloc (len);
+		  if (!parm[parmcount-1].value)
+			{
+			  err = gpg_error (GPG_ERR_ENOMEM);
+			  goto leave;
+			}
+		  memcpy (parm[parmcount-1].value, der, len);
+		  parm[parmcount-1].length = len;
+		}
+	  else
+		{
+		  parm[parmcount-1].value = NULL;
+		  parm[parmcount-1].length = 0;
+		}
+	  der += len;
+	  if (len > derlen)
+		{
+		  err = gpg_error (GPG_ERR_BAD_BER);
+		  goto leave;
+		}
+	  derlen -= len;
+	}
+
+ leave:
+  if (err)
+	{
+	  release_algorithm_params (parm, parmcount);
+	}
+  else if (r_parm && r_parmcount)
+	{
+	  *r_parm = parm;
+	  *r_parmcount = parmcount;
+	}
+
+  return err;
+}
+
 
 gpg_error_t
 _ksba_parse_algorithm_identifier2 (const unsigned char *der, size_t derlen,
                                    size_t *r_nread, char **r_oid,
-                                   char **r_parm, size_t *r_parmlen)
+                                   struct algorithm_param_s **r_parm,
+                                   int *r_parmcount)
 {
   return _ksba_parse_algorithm_identifier3 (der, derlen, 0x30,
                                             r_nread, r_oid,
@@ -770,8 +865,10 @@ _ksba_parse_algorithm_identifier3 (const unsigned char *der, size_t derlen,
   int is_bitstr;
   size_t nread, off, len, off2, len2;
   int parm_type;
+  struct algorithm_param_s *parm = NULL;
+  int parmcount = 0;
 
-  /* fixme: get_algorithm might return the error invalid keyinfo -
+   /* fixme: get_algorithm might return the error invalid keyinfo -
      this should be invalid algorithm identifier */
   *r_oid = NULL;
   if (r_nread)
@@ -812,33 +909,49 @@ _ksba_parse_algorithm_identifier3 (const unsigned char *der, size_t derlen,
           return gpg_error (GPG_ERR_ENOMEM);
         }
 
-      off2 = len2 = 0; /* So that R_PARM is set to NULL.  */
-    }
+	  off2 = len2 = 0; /* So that R_PARM is set to NULL.  */
+	}
 
-  if (r_parm && r_parmlen)
-    {
-      if (off2 && len2)
-        {
-          *r_parm = xtrymalloc (len2);
-          if (!*r_parm)
-            {
-              xfree (*r_oid);
-              *r_oid = NULL;
-              return gpg_error (GPG_ERR_ENOMEM);
-            }
-          memcpy (*r_parm, der+off2, len2);
-          *r_parmlen = len2;
-        }
-      else
-        {
-          *r_parm = NULL;
-          *r_parmlen = 0;
-        }
-    }
-  if (r_parmtype)
-    *r_parmtype = parm_type;
+  if (off2 && len2)
+	{
+	  if (parm_type == TYPE_SEQUENCE)
+		{
+		  err = parse_param_sequence (der + off2, len2, &parm, &parmcount);
+		}
+	  else
+		{
+		  parm = xtrycalloc (1, sizeof (struct algorithm_param_s));
+		  if (parm)
+			{
+			  parmcount = 1;
+			  parm->value = xtrymalloc (len2);
+			}
+		  if (!parm || !parm->value)
+			{
+			  err = gpg_error (GPG_ERR_ENOMEM);
+			  goto leave;
+			}
+		  parm->tag = parm_type;
+		  parm->class = CLASS_UNIVERSAL;
+		  parm->constructed = 0;
+		  memcpy (parm->value, der+off2, len2);
+		  parm->length = len2;
+		}
+	}
+ leave:
+  if (err)
+	{
+	  xfree (*r_oid);
+	  *r_oid = NULL;
+	  release_algorithm_params (parm, parmcount);
+	}
+  else if (r_parm && r_parmcount)
+	{
+	  *r_parm = parm;
+	  *r_parmcount = parmcount;
+	}
 
-  return 0;
+  return err;
 }
 
 
