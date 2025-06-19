@@ -91,6 +91,7 @@ static void test_integration(void)
   const char *hex_cms="304206092a864886f70d010703a03530330201003100302c06092a864886f70d010701301906062a8503020215300f0404aabbccdd06072a850302021f01800464617461";
   size_t len; unsigned char *buf = hex2bin(hex_cms,&len);
   ksba_reader_t r; ksba_writer_t w; ksba_cms_t cms; gpg_error_t err; ksba_stop_reason_t sr;
+  const char *oid; const char *sbox; unsigned char iv[8]; size_t ivlen;
   err=ksba_reader_new(&r); assert(!err);
   err=ksba_reader_set_mem(r,buf,len); assert(!err);
   err=ksba_writer_new(&w); assert(!err);
@@ -98,11 +99,11 @@ static void test_integration(void)
   err=ksba_cms_new(&cms); assert(!err);
   err=ksba_cms_set_reader_writer(cms,r,w); assert(!err);
   do { err=ksba_cms_parse(cms,&sr); assert(!err); } while(sr!=KSBA_SR_READY);
-  const char *oid = ksba_cms_get_content_oid(cms,2);
-  const char *sbox = ksba_cms_get_content_oid(cms,3);
+  oid = ksba_cms_get_content_oid(cms,2);
+  sbox = ksba_cms_get_content_oid(cms,3);
   assert(oid && !strcmp(oid,"1.2.643.2.2.21"));
   assert(sbox && !strcmp(sbox,"1.2.643.2.2.31.1"));
-  unsigned char iv[8]; size_t ivlen; err=ksba_cms_get_content_enc_iv(cms,iv,sizeof(iv),&ivlen); assert(!err && ivlen==4);
+  err=ksba_cms_get_content_enc_iv(cms,iv,sizeof(iv),&ivlen); assert(!err && ivlen==4);
   ksba_cms_release(cms); ksba_reader_release(r); ksba_writer_release(w); free(buf);
 }
 
