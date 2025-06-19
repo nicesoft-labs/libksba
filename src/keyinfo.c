@@ -58,7 +58,8 @@ typedef enum
     PKALGO_X25519,
     PKALGO_X448,
     PKALGO_ED25519,
-    PKALGO_ED448
+    PKALGO_ED448,
+    PKALGO_GOST
   }
 pkalgo_t;
 
@@ -132,6 +133,20 @@ static const struct algo_table_s pk_algo_table[] = {
     "1.3.101.113", /* Ed448 */
     "\x2b\x65\x71", 3,
     1, PKALGO_ED448, "ecc", "q", "\x80" },
+  { /* iso.member-body.ru.rans.cryptopro.gostR3410-2001 */
+    "1.2.643.2.2.19",
+    "\x2a\x85\x03\x02\x02\x13", 6,
+    1, PKALGO_GOST, "1.2.643.2.2.19", "q", "\x04", "-CD", "\x30\x06\x06" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-256 */
+    "1.2.643.7.1.1.1.1",
+    "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
+    1, PKALGO_GOST, "1.2.643.7.1.1.1.1", "q", "\x04", "-CD", "\x30\x06\x06" },
+
+  { /* iso.member-body.ru.reg7.tc26.algorithms.sign.tc26-gost3410-12-512 */
+    "1.2.643.7.1.1.1.2",
+    "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
+    1, PKALGO_GOST, "1.2.643.7.1.1.1.2", "q", "\x04", "-CD", "\x30\x06\x06" },
 
   {NULL}
 };
