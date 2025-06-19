@@ -2112,3 +2112,112 @@ _ksba_encval_kari_to_sexp (const unsigned char *der, size_t derlen,
                            keyencralgo, keywrapalgo, enckey, enckeylen,
                            r_string);
 }
+
+
+
+/* Take a sig-val style S-expression and convert it into a DER encoded
+ * signature.  Only the GOST variant, which requires byte reversal of
+ * R and S, is currently supported.  */
+static gpg_error_t
+cryptval_from_sexp (ksba_const_sexp_t sexp,
+                    unsigned char **r_der, size_t *r_derlen)
+{
+  gpg_error_t err = 0;
+  const unsigned char *s = sexp;
+  unsigned long n;
+  const char *algo_oid;
+  pkalgo_t pkalgo;
+  struct { const unsigned char *value; size_t len; } r = {NULL,0},
+                                                     sigs = {NULL,0};
+  ksba_der_t dbld = NULL;
+  unsigned char *tmp = NULL;
+
+  *r_der = NULL;
+  *r_derlen = 0;
+
+  if (!s || *s != '(')
+    return gpg_error (GPG_ERR_INV_SEXP);
+  s++;
+
+  if (!(n = snext (&s)))
+    return gpg_error (GPG_ERR_INV_SEXP);
+  if (!smatch (&s, n, "sig-val"))
+    return gpg_error (GPG_ERR_UNKNOWN_SEXP);
+
+  if (*s != '(')
+    return gpg_error (digitp (s)? GPG_ERR_UNKNOWN_SEXP : GPG_ERR_INV_SEXP);
+  s++;
+
+  if (!(n = snext (&s)))
+    return gpg_error (GPG_ERR_INV_SEXP);
+  algo_oid = oid_from_buffer (s, n, &pkalgo, 1);
+  if (!algo_oid)
+    return gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM);
+  s += n;
+
+  while (*s == '(')
+    {
+      s++;
+      if (!(n = snext (&s)))
+        { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+      if (n == 1 && *s == 'r')
+        {
+          s += n;
+          if (!(n = snext (&s))) { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+          r.value = s; r.len = n; s += n;
+        }
+      else if (n == 1 && *s == 's')
+        {
+          s += n;
+          if (!(n = snext (&s))) { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+          sigs.value = s; sigs.len = n; s += n;
+        }
+      else
+        {
+          s += n;
+          if (!(n = snext (&s))) { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+          s += n;
+        }
+      if (*s != ')') { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+      s++;
+    }
+  if (*s != ')') { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+  s++;
+
+  if (pkalgo != PKALGO_GOST || !r.value || !sigs.value)
+    { err = gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM); goto leave; }
+
+  dbld = _ksba_der_builder_new (0);
+  if (!dbld)
+    { err = gpg_error_from_syserror (); goto leave; }
+
+  _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
+  _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
+  _ksba_der_add_oid (dbld, algo_oid);
+  _ksba_der_add_ptr (dbld, 0, TYPE_NULL, NULL, 0);
+  _ksba_der_add_end (dbld);
+
+  tmp = xtrymalloc (r.len + sigs.len);
+  if (!tmp) { err = gpg_error_from_syserror (); goto leave; }
+  for (n=0; n < sigs.len; n++)
+    tmp[n] = sigs.value[sigs.len-1-n];
+  for (n=0; n < r.len; n++)
+    tmp[sigs.len+n] = r.value[r.len-1-n];
+  _ksba_der_add_bts (dbld, tmp, r.len + sigs.len, 0);
+  _ksba_der_add_end (dbld);
+
+  err = _ksba_der_builder_get (dbld, r_der, r_derlen);
+
+leave:
+  xfree (tmp);
+  _ksba_der_release (dbld);
+  return err;
+}
+
+
+gpg_error_t
+_ksba_sigval_from_sexp (ksba_const_sexp_t sexp,
+                        unsigned char **r_der, size_t *r_derlen)
+{
+  return cryptval_from_sexp (sexp, r_der, r_derlen);
+}
