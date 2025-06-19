@@ -245,6 +245,11 @@ DigestedData ::= SEQUENCE {
   encapContentInfo EncapsulatedContentInfo,
   digest Digest }
 
+SubjectPublicKeyInfo ::= SEQUENCE {
+  algorithm AlgorithmIdentifier,
+  subjectPublicKey BIT STRING }
+
+
 Digest ::= OCTET STRING
 
 EncryptedData ::= SEQUENCE {
@@ -477,7 +482,26 @@ CertificateList ::= ANY
 
 CertificateSerialNumber ::= INTEGER
 
+-- GOST (See TK26CMS.1.1)
 
+GostR3410-KeyTransport ::= SEQUENCE {
+	sessionEncryptedKey	Gost28147-89-EncryptedKey,
+	transportParameters	[0]	IMPLICIT GostR3410-TransportParameters OPTIONAL
+}
 
+Gost28147-89-EncryptedKey ::= SEQUENCE {
+	encryptedKey	Gost28147-89-Key,
+	maskKey			[0] IMPLICIT Gost28147-89-Key OPTIONAL,
+	macKey			Gost28147-89-MAC
+}
+
+Gost28147-89-Key ::= OCTET STRING
+Gost28147-89-MAC ::= OCTET STRING
+
+GostR3410-TransportParameters ::= SEQUENCE {
+	encryptionParamSet	OBJECT IDENTIFIER,
+	ephemeralPublicKey	[0] IMPLICIT SubjectPublicKeyInfo OPTIONAL,
+	ukm					OCTET STRING
+}
 
 END -- of CryptographicMessageSyntax
