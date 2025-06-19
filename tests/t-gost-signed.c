@@ -81,6 +81,7 @@ int main (int argc, char **argv)
   /* Get signature algorithm */
   sigval = ksba_cms_get_sig_val (cms, 0);
   assert (sigval);
+  printf("sigval: %s\n", (char*)sigval);
   if (strstr ((char*)sigval, "1.2.643.7.1.1.1.1"))
     {
       oid = strdup ("1.2.643.7.1.1.1.1");
