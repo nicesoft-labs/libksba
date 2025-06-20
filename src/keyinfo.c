@@ -1086,15 +1086,15 @@ if (parm_off && parm_len && parm_type == TYPE_OBJECT_ID)
   {
     parm_oid = ksba_oid_to_str (der+parm_off, parm_len);
   }
-else if (parm_off && parm_len && parm_type == TYPE_SEQUENCE)
+else if (parm_off && parm_len)
   {
     parmder = der + parm_off;
     parmderlen = parm_len;
 
     /* Попробуем вытащить первый OID из SEQUENCE — это будет curve OID */
     const unsigned char *p = parmder;
-    size_t plen = parmderlen;
-    int c;
+    size_t plen_local = parmderlen;
+    int c_local;
 
     if (!plen)
       return gpg_error (GPG_ERR_INV_KEYINFO);
