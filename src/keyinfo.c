@@ -1082,105 +1082,90 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
   if (!pk_algo_table[algoidx].supported)
     return gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM);
 
-if (parm_off && parm_len && parm_type == TYPE_OBJECT_ID)
-  {
-    parm_oid = ksba_oid_to_str (der+parm_off, parm_len);
-  }
-else if (parm_off && parm_len)
-  {
-    parmder = der + parm_off;
-    parmderlen = parm_len;
-
-    /* Попробуем вытащить первый OID из SEQUENCE — это будет curve OID */
-    const unsigned char *p;
-    size_t plen;
-    int c;
-
-    p = parmder;
-    plen = parmderlen;
-
-    if (plen < 2)
-      return gpg_error (GPG_ERR_INV_KEYINFO);
-
-    c = *p++;
-    plen--;
-    if (c != 0x30)  /* Проверка, что это SEQUENCE */
-      return gpg_error (GPG_ERR_UNEXPECTED_TAG);
-
-    /* пропускаем длину SEQUENCE */
+  if (parm_off && parm_len && parm_type == TYPE_OBJECT_ID)
     {
-      const unsigned char *prefix = p;
-      size_t prefixlen = plen;
-      int __tlv_c;
-      size_t __tlv_len = 0;
-
-      if (!prefixlen)
-        return gpg_error (GPG_ERR_INV_KEYINFO);
-      __tlv_c = *prefix++;
-      prefixlen--;
-      if (!(__tlv_c & 0x80))
-        __tlv_len = __tlv_c;
-      else
-        {
-          int __tlv_count = __tlv_c & 0x7f;
-          if (__tlv_count > sizeof(size_t) || __tlv_count > prefixlen)
-            return gpg_error (GPG_ERR_BAD_BER);
-          while (__tlv_count--)
-            {
-              __tlv_len <<= 8;
-              __tlv_len |= *prefix++;
-            }
-          prefixlen -= (prefix - p);
-        }
-      p = prefix;
-      plen = prefixlen;
+      parm_oid = ksba_oid_to_str (der+parm_off, parm_len);
     }
+  else if (parm_off && parm_len)
+    {
+      const unsigned char *p;
+      size_t plen;
+      int tag;
+	    
+      parmder = der + parm_off;
+      parmderlen = parm_len;
 
-    if (plen < 2)
-      return gpg_error (GPG_ERR_INV_KEYINFO);
+      p = parmder;
+      plen = parmderlen;
 
-    c = *p++;
-    plen--;
-    if (c == 0x06)  /* OBJECT IDENTIFIER */
-      {
-        const unsigned char *oidptr;
-        size_t oidlen;
+     if (plen >= 2)    
+        {
+          tag = *p++;
+          plen--;
+          if (tag == 0x30)
+            {
+              size_t seqlen = 0;
 
-        /* Аналог TLV_LENGTH(p) вручную: */
-        if (!plen)
-          return gpg_error (GPG_ERR_INV_KEYINFO);
-        c = *p++;
-        plen--;
-        if (!(c & 0x80))
-          oidlen = c;
-        else
-          {
-            int count = c & 0x7f;
-            if (count > sizeof(size_t) || count > plen)
-              return gpg_error (GPG_ERR_BAD_BER);
-            oidlen = 0;
-            while (count--)
-              {
-                oidlen <<= 8;
-                oidlen |= *p++;
-                plen--;
-              }
-          }
+              if (!plen)
+                return gpg_error (GPG_ERR_INV_KEYINFO);
+              tag = *p++;
+              plen--;
+              if (!(tag & 0x80))
+                seqlen = tag;
+              else
+                {
+                  int count = tag & 0x7f;
+                  if (count > sizeof(size_t) || count > plen)
+                    return gpg_error (GPG_ERR_BAD_BER);
+                  seqlen = 0;
+                  while (count--)
+                    {
+                      seqlen <<= 8;
+                      seqlen |= *p++;
+                      plen--;
+                    }
+                }
+              if (seqlen > plen)
+                return gpg_error (GPG_ERR_INV_KEYINFO);
 
-        oidptr = p;
-        if (oidlen > plen)
-          return gpg_error (GPG_ERR_BAD_BER);
+              if (plen >= 2)
+                {
+                  tag = *p++;
+                  plen--;
+                  if (tag == 0x06)
+                    {
+                      const unsigned char *oidptr;
+                      size_t oidlen;
 
-        parm_oid = ksba_oid_to_str (oidptr, oidlen);
-      }
-  }
+                      if (!plen)
+                        return gpg_error (GPG_ERR_INV_KEYINFO);
+                      tag = *p++;
+                      plen--;
+                      if (!(tag & 0x80))
+                        oidlen = tag;
+                      else
+                        {
+                          int count = tag & 0x7f;
+                          if (count > sizeof(size_t) || count > plen)
+                            return gpg_error (GPG_ERR_BAD_BER);
+                          oidlen = 0;
+                          while (count--)
+                            {
+                              oidlen <<= 8;
+                              oidlen |= *p++;
+                              plen--;
+                            }
+                        }
+                      if (oidlen > plen)
+                        return gpg_error (GPG_ERR_BAD_BER);
 
-else if (parm_off && parm_len)
-  {
-    parmder = der + parm_off;
-    parmderlen = parm_len;
-  }
-
+                      oidptr = p;
+                      parm_oid = ksba_oid_to_str (oidptr, oidlen);
+                    }
+                }
+            }
+        }
+    }
 
   der += nread;
   derlen -= nread;
