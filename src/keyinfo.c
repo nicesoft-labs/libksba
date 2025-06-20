@@ -1136,7 +1136,13 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
       put_stringbuf_sexp (&sb, pk_algo_table[algoidx].oidstring);
       put_stringbuf (&sb, ")");
     }
-
+  else if (pk_algo_table[algoidx].pkalgo == PKALGO_GOST && parm_oid)
+    {
+      put_stringbuf (&sb, "(");
+      put_stringbuf_sexp (&sb, "curve");
+      put_stringbuf_sexp (&sb, parm_oid);
+      put_stringbuf (&sb, ")");
+    }
   /* If parameters are given and we have a description for them, parse
      them. */
   if (parmder && parmderlen
@@ -1212,9 +1218,12 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
   elem = pk_algo_table[algoidx].elem_string;
   ctrl = pk_algo_table[algoidx].ctrl_string;
   int reverse_all = 0;
+  int flip_xy = 0;
   if (*elem == '*')
     {
       reverse_all = 1;
+      if (elem[1] == 'q' || elem[1] == 'Q')
+        flip_xy = 1;
       elem++;
     }
   for (; *elem; ctrl++, elem++)
@@ -1250,8 +1259,7 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
           put_stringbuf (&sb, "(");
           tmp[0] = *elem; tmp[1] = 0;
           put_stringbuf_sexp (&sb, tmp);
-          if (reverse_all && pk_algo_table[algoidx].pkalgo == PKALGO_GOST
-              && *elem == 'q')
+          if (reverse_all && flip_xy && (*elem == 'q' || *elem == 'Q'))
             {
               unsigned char *xytmp = xtrymalloc (len + 1);
               if (!xytmp)
@@ -1421,6 +1429,17 @@ _ksba_keyinfo_from_sexp (ksba_const_sexp_t sexp, int algoinfomode,
     return gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM);
   s += n;
 
+  const struct algo_table_s *algo_info = NULL;
+  for (i = 0; pk_algo_table[i].oid; i++)
+    if (!strcmp (pk_algo_table[i].oidstring, algo_oid))
+      {
+        algo_info = pk_algo_table + i;
+        break;
+      }
+  int flip_xy = (algo_info && algo_info->elem_string
+                 && algo_info->elem_string[0] == '*'
+                 && (algo_info->elem_string[1] == 'q'
+                     || algo_info->elem_string[1] == 'Q'));
   /* Collect all the values.  */
   force_pkalgo = 0;
   for (parmidx = 0; *s != ')' ; parmidx++)
@@ -1580,7 +1599,7 @@ _ksba_keyinfo_from_sexp (ksba_const_sexp_t sexp, int algoinfomode,
   /* Add the bit string if we are not in algoinfomode.  */
   if (!algoinfomode)
     {
-      if (pkalgo == PKALGO_GOST && *parmdesc == 'q' && !parmdesc[1])
+      if (flip_xy && *parmdesc == 'q' && !parmdesc[1])
         {
           for (i=0; i < parmidx; i++)
             if (parm[i].namelen == 1 && parm[i].name[0] == 'q')
