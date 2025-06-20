@@ -1082,13 +1082,50 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
   if (!pk_algo_table[algoidx].supported)
     return gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM);
 
-  if (parm_off && parm_len && parm_type == TYPE_OBJECT_ID)
+if (parm_off && parm_len && parm_type == TYPE_OBJECT_ID)
+  {
     parm_oid = ksba_oid_to_str (der+parm_off, parm_len);
-  else if (parm_off && parm_len)
-    {
-      parmder = der + parm_off;
-      parmderlen = parm_len;
-    }
+  }
+else if (parm_off && parm_len && parm_type == TYPE_SEQUENCE)
+  {
+    parmder = der + parm_off;
+    parmderlen = parm_len;
+
+    /* Попробуем вытащить первый OID из SEQUENCE — это будет curve OID */
+    size_t len = parmderlen;
+    const unsigned char *p = parmder;
+    int c;
+
+    if (!len)
+      return gpg_error (GPG_ERR_INV_KEYINFO);
+    c = *p++; len--;
+    if (c != 0x30)  /* Проверка, что это SEQUENCE */
+      return gpg_error (GPG_ERR_UNEXPECTED_TAG);
+
+    TLV_LENGTH(p);  /* Пропускаем длину SEQUENCE */
+
+    if (!len)
+      return gpg_error (GPG_ERR_INV_KEYINFO);
+    c = *p++; len--;
+    if (c == 0x06)  /* OBJECT IDENTIFIER */
+      {
+        size_t oidlen;
+        const unsigned char *oidptr;
+
+        TLV_LENGTH(p);
+        oidlen = len < parmderlen ? len : parmderlen;
+        oidptr = p;
+
+        parm_oid = ksba_oid_to_str (oidptr, oidlen);
+        /* игнорируем digest OID */
+      }
+  }
+else if (parm_off && parm_len)
+  {
+    parmder = der + parm_off;
+    parmderlen = parm_len;
+  }
+
 
   der += nread;
   derlen -= nread;
