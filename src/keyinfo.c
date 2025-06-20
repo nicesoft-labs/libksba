@@ -1092,32 +1092,86 @@ else if (parm_off && parm_len)
     parmderlen = parm_len;
 
     /* Попробуем вытащить первый OID из SEQUENCE — это будет curve OID */
-    const unsigned char *p = parmder;
-    size_t plen_local = parmderlen;
-    int c_local;
+    const unsigned char *p;
+    size_t plen;
+    int c;
 
-    if (!plen)
+    p = parmder;
+    plen = parmderlen;
+
+    if (plen < 2)
       return gpg_error (GPG_ERR_INV_KEYINFO);
-    c = *p++; plen--;
+
+    c = *p++;
+    plen--;
     if (c != 0x30)  /* Проверка, что это SEQUENCE */
       return gpg_error (GPG_ERR_UNEXPECTED_TAG);
 
-    TLV_LENGTH(p);  /* Пропускаем длину SEQUENCE */
+    /* пропускаем длину SEQUENCE */
+    {
+      const unsigned char *prefix = p;
+      size_t prefixlen = plen;
+      int __tlv_c;
+      size_t __tlv_len = 0;
 
-    if (!plen)
+      if (!prefixlen)
+        return gpg_error (GPG_ERR_INV_KEYINFO);
+      __tlv_c = *prefix++;
+      prefixlen--;
+      if (!(__tlv_c & 0x80))
+        __tlv_len = __tlv_c;
+      else
+        {
+          int __tlv_count = __tlv_c & 0x7f;
+          if (__tlv_count > sizeof(size_t) || __tlv_count > prefixlen)
+            return gpg_error (GPG_ERR_BAD_BER);
+          while (__tlv_count--)
+            {
+              __tlv_len <<= 8;
+              __tlv_len |= *prefix++;
+            }
+          prefixlen -= (prefix - p);
+        }
+      p = prefix;
+      plen = prefixlen;
+    }
+
+    if (plen < 2)
       return gpg_error (GPG_ERR_INV_KEYINFO);
-    c = *p++; plen--;
+
+    c = *p++;
+    plen--;
     if (c == 0x06)  /* OBJECT IDENTIFIER */
       {
-        size_t oidlen;
         const unsigned char *oidptr;
+        size_t oidlen;
 
-        TLV_LENGTH(p);
-        oidlen = plen < parmderlen ? plen : parmderlen;
+        /* Аналог TLV_LENGTH(p) вручную: */
+        if (!plen)
+          return gpg_error (GPG_ERR_INV_KEYINFO);
+        c = *p++;
+        plen--;
+        if (!(c & 0x80))
+          oidlen = c;
+        else
+          {
+            int count = c & 0x7f;
+            if (count > sizeof(size_t) || count > plen)
+              return gpg_error (GPG_ERR_BAD_BER);
+            oidlen = 0;
+            while (count--)
+              {
+                oidlen <<= 8;
+                oidlen |= *p++;
+                plen--;
+              }
+          }
+
         oidptr = p;
+        if (oidlen > plen)
+          return gpg_error (GPG_ERR_BAD_BER);
 
         parm_oid = ksba_oid_to_str (oidptr, oidlen);
-        /* игнорируем digest OID */
       }
   }
 
