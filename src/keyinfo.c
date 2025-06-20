@@ -1092,34 +1092,35 @@ else if (parm_off && parm_len && parm_type == TYPE_SEQUENCE)
     parmderlen = parm_len;
 
     /* Попробуем вытащить первый OID из SEQUENCE — это будет curve OID */
-    size_t len = parmderlen;
     const unsigned char *p = parmder;
+    size_t plen = parmderlen;
     int c;
 
-    if (!len)
+    if (!plen)
       return gpg_error (GPG_ERR_INV_KEYINFO);
-    c = *p++; len--;
+    c = *p++; plen--;
     if (c != 0x30)  /* Проверка, что это SEQUENCE */
       return gpg_error (GPG_ERR_UNEXPECTED_TAG);
 
     TLV_LENGTH(p);  /* Пропускаем длину SEQUENCE */
 
-    if (!len)
+    if (!plen)
       return gpg_error (GPG_ERR_INV_KEYINFO);
-    c = *p++; len--;
+    c = *p++; plen--;
     if (c == 0x06)  /* OBJECT IDENTIFIER */
       {
         size_t oidlen;
         const unsigned char *oidptr;
 
         TLV_LENGTH(p);
-        oidlen = len < parmderlen ? len : parmderlen;
+        oidlen = plen < parmderlen ? plen : parmderlen;
         oidptr = p;
 
         parm_oid = ksba_oid_to_str (oidptr, oidlen);
         /* игнорируем digest OID */
       }
   }
+
 else if (parm_off && parm_len)
   {
     parmder = der + parm_off;
