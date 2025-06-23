@@ -1159,7 +1159,7 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
               unsigned char pk[129];
               unsigned char *x, *y;
               int len_pk, len_xy;
-              int i, offset;
+              int j, offset;
               unsigned char c_inv;
 
               pk[0] = 0x04;
@@ -1176,17 +1176,17 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
                   x = &pk[1];
                   len_xy = len_pk / 2;
                   y = x + len_xy;
-                  for (i=0; i < len_xy/2; i++)
+                  for (j=0; j < len_xy/2; j++)
                     {
-                      c_inv = x[i];
-                      x[i] = x[len_xy-i-1];
-                      x[len_xy-i-1] = c_inv;
+                      c_inv = x[j];
+                      x[j] = x[len_xy-j-1];
+                      x[len_xy-j-1] = c_inv;
                     }
-                  for (i=0; i < len_xy/2; i++)
+                  for (j=0; j < len_xy/2; j++)
                     {
-                      c_inv = y[i];
-                      y[i] = y[len_xy-i-1];
-                      y[len_xy-i-1] = c_inv;
+                      c_inv = y[j];
+                      y[j] = y[len_xy-j-1];
+                      y[len_xy-j-1] = c_inv;
                     }
                   put_stringbuf_mem_sexp (&sb, pk, len_pk + 1);
                 }
