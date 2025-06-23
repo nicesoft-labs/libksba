@@ -57,6 +57,8 @@ struct enc_val_s {
     size_t elen;      /* Length of E.          */
     char *encr_algo;  /* Malloced OID string.  */
     char *wrap_algo;  /* Malloced OID string.  */
+    unsigned char *ukm; /* Malloced buffer.  */
+    size_t ukmlen;      /* Length of UKM.   */
   } ecdh;
 };
 
