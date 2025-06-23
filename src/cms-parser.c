@@ -49,6 +49,61 @@
 #include "ber-decoder.h"
 #include "ber-help.h"
 #include "keyinfo.h"
+#include <gcrypt.h>
+
+/* --- GOST helper functions.  --- */
+static void
+invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
+{
+  for (size_t i = 0; i < len; i++)
+    dst[i] = src[len - 1 - i];
+}
+
+static gpg_error_t
+gost_adjust_signature (gcry_sexp_t *sig)
+{
+  gcry_sexp_t r = NULL, s = NULL;
+  const unsigned char *rbuf, *sbuf;
+  size_t rlen, slen;
+  unsigned char *rrev = NULL, *srev = NULL;
+  gpg_error_t err = 0;
+
+  if (!sig || !*sig)
+    return gpg_error (GPG_ERR_INV_VALUE);
+
+  r = gcry_sexp_find_token (*sig, "r", 0);
+  s = gcry_sexp_find_token (*sig, "s", 0);
+  if (!r || !s)
+    {
+      err = gpg_error (GPG_ERR_INV_SEXP);
+      goto leave;
+    }
+
+  rbuf = gcry_sexp_nth_buffer (r, 1, &rlen);
+  sbuf = gcry_sexp_nth_buffer (s, 1, &slen);
+  if (!rbuf || !sbuf || rlen != slen)
+    {
+      err = gpg_error (GPG_ERR_INV_SEXP);
+      goto leave;
+    }
+
+  rrev = gcry_xmalloc (rlen);
+  srev = gcry_xmalloc (slen);
+  invert_bytes (rrev, rbuf, rlen);
+  invert_bytes (srev, sbuf, slen);
+
+  gcry_sexp_release (*sig);
+  err = gcry_sexp_build (sig, NULL,
+                         "(sig-val (gost (r %b)(s %b)))",
+                         (int)rlen, rrev, (int)slen, srev);
+
+leave:
+  gcry_sexp_release (r);
+  gcry_sexp_release (s);
+  gcry_free (rrev);
+  gcry_free (srev);
+  return err;
+}
 
 static int
 read_byte (ksba_reader_t reader)

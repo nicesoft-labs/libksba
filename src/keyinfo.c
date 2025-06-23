@@ -1968,6 +1968,37 @@ _ksba_encval_to_sexp (const unsigned char *der, size_t derlen,
  *     (s <octetstring>)
  *   (ukm <octetstring>)
  *   (encr-algo <oid>)
+
+/* Check keyUsage flags for GOST certificates.  */
+gpg_error_t
+_ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
+{
+  gpg_error_t err;
+  unsigned int usage = 0;
+
+  err = ksba_cert_get_key_usage (cert, &usage);
+  if (gpg_err_code (err) == GPG_ERR_NO_DATA)
+    return 0;
+  if (err)
+    return err;
+
+  if (usage_flag == KSBA_KEYUSAGE_DIGITAL_SIGNATURE
+      || usage_flag == KSBA_KEYUSAGE_NON_REPUDIATION)
+    {
+      if (!(usage & (KSBA_KEYUSAGE_DIGITAL_SIGNATURE |
+                     KSBA_KEYUSAGE_NON_REPUDIATION)))
+        return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+    }
+  else if (usage_flag == KSBA_KEYUSAGE_KEY_ENCIPHERMENT
+           || usage_flag == KSBA_KEYUSAGE_DATA_ENCIPHERMENT)
+    {
+      if (!(usage & (KSBA_KEYUSAGE_KEY_ENCIPHERMENT |
+                     KSBA_KEYUSAGE_DATA_ENCIPHERMENT)))
+        return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+    }
+
+  return 0;
+}
  *   (wrap-algo <oid>)))
  *
  * E is the ephemeral public key and S is the encrypted key.  The user

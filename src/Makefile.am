@@ -106,7 +106,7 @@ libksba_la_SOURCES = \
 	ber-decoder.c ber-decoder.h \
 	der-encoder.c der-encoder.h \
 	der-builder.c der-builder.h \
-	cert.c cert.h \
+        cert.c cert.h certcheck.c \
 	cms.c cms.h cms-parser.c \
 	crl.c crl.h \
 	certreq.c certreq.h \
