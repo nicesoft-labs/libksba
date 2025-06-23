@@ -105,6 +105,7 @@
 #define ksba_cms_get_sigattr_oids          _ksba_cms_get_sigattr_oids
 #define ksba_cms_get_signing_time          _ksba_cms_get_signing_time
 #define ksba_cms_hash_signed_attrs         _ksba_cms_hash_signed_attrs
+#define ksba_cms_check_signed_attrs_gost   _ksba_cms_check_signed_attrs_gost
 #define ksba_cms_identify                  _ksba_cms_identify
 #define ksba_cms_new                       _ksba_cms_new
 #define ksba_cms_parse                     _ksba_cms_parse
@@ -313,6 +314,7 @@ int ksba_asn_delete_structure (void *dummy);
 #undef ksba_cms_get_sigattr_oids
 #undef ksba_cms_get_signing_time
 #undef ksba_cms_hash_signed_attrs
+#undef ksba_cms_check_signed_attrs_gost
 #undef ksba_cms_identify
 #undef ksba_cms_new
 #undef ksba_cms_parse
@@ -490,6 +492,7 @@ MARK_VISIBLE (ksba_cms_get_sig_val)
 MARK_VISIBLE (ksba_cms_get_sigattr_oids)
 MARK_VISIBLE (ksba_cms_get_signing_time)
 MARK_VISIBLE (ksba_cms_hash_signed_attrs)
+MARK_VISIBLE (ksba_cms_check_signed_attrs_gost)
 MARK_VISIBLE (ksba_cms_identify)
 MARK_VISIBLE (ksba_cms_new)
 MARK_VISIBLE (ksba_cms_parse)

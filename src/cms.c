@@ -56,6 +56,14 @@
 #include "der-builder.h"
 #include "stringbuf.h"
 
+/* Helper used for GOST signature handling: reverse byte order.  */
+static void
+invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
+{
+  for (size_t i = 0; i < len; i++)
+    dst[i] = src[len - 1 - i];
+}
+
 static gpg_error_t ct_parse_data (ksba_cms_t cms);
 static gpg_error_t ct_parse_signed_data (ksba_cms_t cms);
 static gpg_error_t ct_parse_enveloped_data (ksba_cms_t cms);
@@ -1669,6 +1677,67 @@ ksba_cms_set_hash_function (ksba_cms_t cms,
 }
 
 
+
+/*
+ * Check signed attributes for GOST signatures.  This verifies that the
+ * content-type attribute matches CONTENT_OID and that the message-digest
+ * attribute equals DIGEST.
+ */
+gpg_error_t
+ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
+                                  const char *content_oid,
+                                  const unsigned char *digest,
+                                  size_t digest_len)
+{
+  gpg_error_t err;
+  AsnNode nsiginfo, n;
+  struct signer_info_s *si;
+  unsigned char *oidbuf = NULL;
+  size_t oidlen;
+
+  if (!cms || !content_oid || !digest)
+    return gpg_error (GPG_ERR_INV_VALUE);
+  if (idx < 0)
+    return gpg_error (GPG_ERR_INV_INDEX);
+
+  for (si=cms->signer_info; si && idx; si = si->next, idx-- )
+    ;
+  if (!si)
+    return -1;
+
+  nsiginfo = _ksba_asn_find_node (si->root, "SignerInfo.signedAttrs");
+  if (!nsiginfo)
+    return gpg_error (GPG_ERR_NO_DATA);
+
+  err = ksba_oid_from_str (content_oid, &oidbuf, &oidlen);
+  if (err)
+    return err;
+  n = _ksba_asn_find_type_value (si->image, nsiginfo, 0, oidbuf, oidlen);
+  if (!n)
+    { xfree (oidbuf); return gpg_error (GPG_ERR_BAD_SIGNATURE); }
+  if (_ksba_asn_find_type_value (si->image, nsiginfo, 1, oidbuf, oidlen))
+    { xfree (oidbuf); return gpg_error (GPG_ERR_DUP_VALUE); }
+  xfree (oidbuf);
+
+  n = _ksba_asn_find_type_value (si->image, nsiginfo, 0,
+                                 oid_messageDigest, DIM(oid_messageDigest));
+  if (!n || _ksba_asn_find_type_value (si->image, nsiginfo, 1,
+                                       oid_messageDigest,
+                                       DIM(oid_messageDigest)))
+    return gpg_error (GPG_ERR_BAD_SIGNATURE);
+  if (!(n->type == TYPE_SET_OF && n->down
+        && n->down->type == TYPE_OCTET_STRING && !n->down->right))
+    return gpg_error (GPG_ERR_INV_CMS_OBJ);
+  n = n->down;
+  if (n->off == -1)
+    return gpg_error (GPG_ERR_BUG);
+  if (n->len != digest_len
+      || memcmp (si->image + n->off + n->nhdr, digest, digest_len))
+    return gpg_error (GPG_ERR_BAD_SIGNATURE);
+
+  return 0;
+}
+
 /* hash the signed attributes of the given signer */
 gpg_error_t
 ksba_cms_hash_signed_attrs (ksba_cms_t cms, int idx)
@@ -2056,6 +2125,8 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
           return gpg_error (GPG_ERR_ENOMEM);
         }
     }
+         || !strcmp (sv->algo, "gost")
+         || !strncmp (sv->algo, "1.2.643", 7)
   else if (n==5 && !memcmp (s, "ecdsa", 5))
     {
       /* Use a placeholder for later fixup.  */
@@ -3352,7 +3423,31 @@ build_signed_data_rest (ksba_cms_t cms)
             oid = "1.2.840.10045.4.3.4";  /* ecdsa-with-SHA512 */
           else
             {
-              err = gpg_error (GPG_ERR_DIGEST_ALGO);
+      if (sv->ecc.r && (!strncmp (sv->algo, "1.2.643", 7) || !strcmp (sv->algo, "gost")))
+        {
+          /* GOST signatures are stored as an OCTET STRING with
+             little-endian S followed by R.  */
+          unsigned char *tmp;
+          if (sv->ecc.rlen != sv->valuelen)
+            {
+              err = gpg_error (GPG_ERR_INV_VALUE);
+              goto leave;
+            }
+          tmp = xtrymalloc (sv->valuelen + sv->ecc.rlen);
+          if (!tmp)
+            {
+              err = gpg_error_from_syserror ();
+              goto leave;
+            }
+          invert_bytes (tmp, sv->value, sv->valuelen);
+          invert_bytes (tmp + sv->valuelen, sv->ecc.r, sv->ecc.rlen);
+          err = _ksba_der_store_octet_string (n, tmp,
+                                             sv->valuelen + sv->ecc.rlen);
+          xfree (tmp);
+          if (err)
+            goto leave;
+        }
+      else if (sv->ecc.r)  /* ECDSA */
               goto leave;
             }
         }

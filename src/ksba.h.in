@@ -378,6 +378,10 @@ void ksba_cms_set_hash_function (ksba_cms_t cms,
                                  void *hash_fnc_arg);
 
 gpg_error_t ksba_cms_hash_signed_attrs (ksba_cms_t cms, int idx);
+gpg_error_t ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
+                                              const char *content_oid,
+                                              const unsigned char *digest,
+                                              size_t digest_len);
 
 
 gpg_error_t ksba_cms_set_content_type (ksba_cms_t cms, int what,

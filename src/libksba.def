@@ -208,3 +208,4 @@ EXPORTS
       ksba_der_add_end                @162
       ksba_der_builder_get            @163
       ksba_check_cert_sig             @164
+      ksba_cms_check_signed_attrs_gost @165
