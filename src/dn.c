@@ -429,8 +429,8 @@ append_atv (const unsigned char *image, AsnNode root, struct stringbuf *sb)
   name = NULL;
   for (i=0; oid_name_tbl[i].name; i++)
     {
-      if (oid_name_tbl[i].source == 1
-          && node->len == oid_name_tbl[i].oidlen
+/*Все oid-ы из DN переводим в текстовую форму*/
+      if (node->len == oid_name_tbl[i].oidlen
           && !memcmp (image+node->off+node->nhdr,
                       oid_name_tbl[i].oid, node->len))
         {
