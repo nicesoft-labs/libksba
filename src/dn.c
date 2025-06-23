@@ -478,6 +478,8 @@ append_atv (const unsigned char *image, AsnNode root, struct stringbuf *sb)
     case TYPE_UTF8_STRING:
       append_utf8_value (image+node->off+node->nhdr, node->len, sb);
       break;
+    /*Добавляем обработку типа NUMERIC STRING*/
+    case TYPE_NUMERIC_STRING:
     case TYPE_PRINTABLE_STRING:
     case TYPE_IA5_STRING:
       /* we assume that wrong encodings are latin-1 */
