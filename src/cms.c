@@ -2587,6 +2587,21 @@ ksba_cms_set_enc_val (ksba_cms_t cms, int idx, ksba_const_sexp_t encval)
                || !cl->enc_val.ecdh.encr_algo
                || !cl->enc_val.ecdh.wrap_algo))
     return gpg_error (GPG_ERR_INV_SEXP);
+  /* Run additional checks for GOST algorithms.  */
+  if (cl->enc_val.algo && !strncmp (cl->enc_val.algo, "1.2.643", 7))
+    {
+      gpg_error_t err;
+
+      if (cl->cert)
+        {
+          err = _ksba_check_key_usage_for_gost (cl->cert,
+                                                KSBA_KEYUSAGE_KEY_ENCIPHERMENT);
+          if (!err)
+            err = check_policy_tk26 (cl->cert);
+          if (err)
+            return err;
+        }
+    }
 
 
   return 0;
@@ -3869,7 +3884,17 @@ build_enveloped_data_header (ksba_cms_t cms)
           err = gpg_error (GPG_ERR_BUG);
           goto leave;
         }
-
+      if (certlist->enc_val.algo &&
+          !strncmp (certlist->enc_val.algo, "1.2.643", 7))
+        {
+          err = _ksba_check_key_usage_for_gost (certlist->cert,
+                                                KSBA_KEYUSAGE_KEY_ENCIPHERMENT);
+          if (!err)
+            err = check_policy_tk26 (certlist->cert);
+          if (err)
+            goto leave;
+        }
+	    
       if (!certlist->enc_val.ecdh.e)  /* RSA (ktri) */
         {
           _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
