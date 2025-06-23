@@ -81,6 +81,9 @@ gpg_error_t _ksba_encval_kari_to_sexp (const unsigned char *der, size_t derlen,
 int _ksba_node_with_oid_to_digest_algo (const unsigned char *image,
                                         AsnNode node);
 
+gpg_error_t _ksba_check_key_usage_for_gost (const ksba_cert_t cert,
+                                            unsigned usage_flag);
+
 
 
 #endif /*KEYINFO_H*/

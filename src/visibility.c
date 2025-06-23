@@ -1317,3 +1317,9 @@ ksba_der_builder_get (ksba_der_t d, unsigned char **r_obj, size_t *r_objlen)
 {
   return _ksba_der_builder_get (d, r_obj, r_objlen);
 }
+
+gpg_error_t
+ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
+{
+  return _ksba_check_cert_sig (issuer_cert, cert);
+}

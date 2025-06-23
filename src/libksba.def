@@ -207,3 +207,4 @@ EXPORTS
       ksba_der_add_tag                @161
       ksba_der_add_end                @162
       ksba_der_builder_get            @163
+      ksba_check_cert_sig             @164

@@ -314,6 +314,7 @@ gpg_error_t ksba_cert_get_validity (ksba_cert_t cert, int what,
 char       *ksba_cert_get_subject (ksba_cert_t cert, int idx);
 ksba_sexp_t ksba_cert_get_public_key (ksba_cert_t cert);
 ksba_sexp_t ksba_cert_get_sig_val (ksba_cert_t cert);
+gpg_error_t ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert);
 
 gpg_error_t ksba_cert_get_extension (ksba_cert_t cert, int idx,
                                      char const **r_oid, int *r_crit,
