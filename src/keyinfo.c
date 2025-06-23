@@ -112,7 +112,19 @@ static const struct algo_table_s pk_algo_table[] = {
     "1.2.840.10045.2.1", /*  ecPublicKey */
     "\x2a\x86\x48\xce\x3d\x02\x01", 7,
     1, PKALGO_ECC, "ecc", "q", "\x80" },
-
+  /*oid-ы ГОСТ-овых ключей*/
+  { /* GOST3410-2001 */
+    "1.2.643.2.2.19", /*  gostPublicKey-2001 */
+    "\x2a\x85\x03\x02\x02\x13", 6,
+    1, PKALGO_ECC, "ecc", "q", "\x80" },
+  { /* GOST3410-2012-256 */
+    "1.2.643.7.1.1.1.1", /*  gostPublicKey-2012-256 */
+    "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
+    1, PKALGO_ECC, "ecc", "q", "\x80" },
+  { /* GOST3410-2012-512 */
+    "1.2.643.7.1.1.1.2", /*  gostPublicKey-2012-512 */
+    "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
+    1, PKALGO_ECC, "ecc", "q", "\x80" },
   { /* iso.identified-organization.thawte.110 */
     "1.3.101.110", /* X25519 */
     "\x2b\x65\x6e", 3,
@@ -273,7 +285,32 @@ static const struct algo_table_s sig_algo_table[] = {
     "1.3.36.3.4.3.2.2",     /* sigS_ISO9796-2rndWithrsa_ripemd160 */
     "\x2B\x24\x03\x04\x03\x02\x02", 7,
     0, PKALGO_RSA, "rsa", "s", "\x82", NULL, NULL, "rmd160" },
-
+/*oid-ы, связанные с ГОСТ-овой подписью*/
+  { /* GOST3410-2001 */
+        "1.2.643.2.2.19", /*  gostPublicKey-2001 */
+        "\x2a\x85\x03\x02\x02\x13", 6,
+        1, PKALGO_ECC, "gost", "s", "\x80", NULL, NULL, "gostr3411_94" },
+      { /* GOST3410-2012-256 */
+        "1.2.643.7.1.1.1.1", /*  gostPublicKey-2012-256 */
+        "\x2a\x85\x03\x07\x01\x01\x01\x01", 8,
+        1, PKALGO_ECC, "gost", "s", "\x80", NULL, NULL, "stribog256"},
+      { /* GOST3410-2012-512 */
+        "1.2.643.7.1.1.1.2", /*  gostPublicKey-2012-512 */
+        "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
+        1, PKALGO_ECC, "gost", "s", "\x80", NULL, NULL, "stribog512"},
+    
+      { /* GOST3411-2012-256 */
+        "1.2.643.7.1.1.3.2", /*  STRIBOG256 */
+        "\x2a\x85\x03\x07\x01\x01\x03\x02", 8,
+        1, PKALGO_ECC, "gost", "s", "\x80", NULL, NULL, "stribog256" },
+      { /* GOST3411-2012-512 */
+        "1.2.643.7.1.1.3.3", /*  STRIBOG512 */
+        "\x2a\x85\x03\x07\x01\x01\x03\x03", 8,
+        1, PKALGO_ECC, "gost", "s", "\x80", NULL, NULL, "stribog512" },
+      { /* GOST3410-2001-Signature */
+        "1.2.643.2.2.3", /*  gosrPublicKey-2001 avec signature */
+        "\x2a\x85\x03\x02\x02\x03", 6,
+        1, PKALGO_ECC, "gost", "s", "\x80", NULL, NULL, "gostr3411_94" },
 
   { /* iso.identified-organization.thawte.112 */
     "1.3.101.112", /* Ed25519 */
@@ -296,6 +333,20 @@ static const struct algo_table_s enc_algo_table[] = {
    "1.2.840.10045.2.1", /* ecPublicKey */
    "\x2a\x86\x48\xce\x3d\x02\x01", 7,
    1, PKALGO_ECC, "ecdh", "e", "\x80" },
+  /*oid-ы ГОСТ-ых ключей для ассиметричного шифрования*/
+  {
+    "1.2.643.2.2.19", /*GOST R34.10-2001 */
+    "\x2A\x85\x03\x02\x02\x13", 6,
+    1, PKALGO_ECC, "ecc", "a", "\x80" },
+  {
+    "1.2.643.7.1.1.1.1", /*GOST R34.10-2012-256 */
+    "\x2A\x85\x03\x07\x01\x01\x01\x01", 8,
+    1, PKALGO_ECC, "ecc", "a", "\x80" },
+  {
+    "1.2.643.7.1.1.1.2", /*GOST R34.10-2012-512 */
+    "\x2A\x85\x03\x07\x01\x01\x01\x02", 8,
+    1, PKALGO_ECC, "ecc", "a", "\x80" },
+
   {NULL}
 };
 
@@ -350,6 +401,11 @@ static const struct
     { "1.2.643.2.2.35.1",    "GOST2001-CryptoPro-A" },
     { "1.2.643.2.2.35.2",    "GOST2001-CryptoPro-B" },
     { "1.2.643.2.2.35.3",    "GOST2001-CryptoPro-C" },
+/*дополнительные oid-ы точек эллиптической кривой для ГОСТ Р 34.10-2001/2012*/
+//    "GOST2001-CryptoPro-XchA" 
+    { "1.2.643.2.2.36.0", "GOST2001-CryptoPro-A" }, 
+//    "GOST2001-CryptoPro-XchB" 
+    { "1.2.643.2.2.36.1", "GOST2001-CryptoPro-C" }, 
     { "1.2.643.7.1.2.1.2.1", "GOST2012-tc26-A"      },
     { "1.2.643.7.1.2.1.2.2", "GOST2012-tc26-B"      },
 
