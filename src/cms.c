@@ -4070,8 +4070,10 @@ build_enveloped_data_header (ksba_cms_t cms)
             goto leave;
         }
 	    
-      if (certlist->enc_val.ecdh.e) /* ECDH/VKO */
-        {
+      if (certlist->enc_val.ecdh.e
+          || (certlist->enc_val.algo
+              && !strcmp (certlist->enc_val.algo, "1.2.643.2.2.96")))
+        { /* Build a KeyAgreeRecipientInfo (ECDH or GOST VKO).  */
           _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* kari */
           _ksba_der_add_ptr (dbld, 0, TYPE_INTEGER, "\x03", 1);
 
@@ -4080,8 +4082,20 @@ build_enveloped_data_header (ksba_cms_t cms)
           _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* algorithm */
           _ksba_der_add_oid (dbld, certlist->enc_val.algo);
           _ksba_der_add_end (dbld);
-          _ksba_der_add_bts (dbld, certlist->enc_val.ecdh.e,
-                             certlist->enc_val.ecdh.elen, 0);
+          if (certlist->enc_val.ecdh.e)
+            _ksba_der_add_bts (dbld, certlist->enc_val.ecdh.e,
+                               certlist->enc_val.ecdh.elen, 0);
+          else
+            {
+              const unsigned char *pubkey;
+              size_t publen;
+
+              err = _ksba_cert_get_public_key_ptr (certlist->cert,
+                                                   &pubkey, &publen);
+              if (err)
+                goto leave;
+              _ksba_der_add_bts (dbld, pubkey, publen, 0);
+            }
           _ksba_der_add_end (dbld); /* end originatorKey */
           _ksba_der_add_end (dbld); /* end originator */
 
@@ -4142,7 +4156,8 @@ build_enveloped_data_header (ksba_cms_t cms)
           _ksba_der_add_end (dbld); /* end recpEncrKeys */
         }
       else if (certlist->enc_val.algo
-               && !strncmp (certlist->enc_val.algo, "1.2.643", 7)) /* KEK */
+               && !strncmp (certlist->enc_val.algo, "1.2.643", 7)
+               && strcmp (certlist->enc_val.algo, "1.2.643.2.2.96")) /* KEK */
         {
           unsigned char *ski; size_t skilen;
           _ksba_der_add_tag (dbld, CLASS_CONTEXT, 2); /* kekri */
