@@ -34,7 +34,8 @@ test_certs = samples/cert_dfn_pca01.der samples/cert_dfn_pca15.der \
              samples/openssl-secp256r1ca.cert.crt \
              samples/ed25519-rfc8410.crt \
              samples/ed25519-ossl-1.crt \
-             samples/ed448-ossl-1.crt
+             samples/ed448-ossl-1.crt \
+             samples/user_gost.der samples/ca_gost.der
 
 
 test_crls = samples/ov-test-crl.crl
@@ -55,7 +56,7 @@ BUILT_SOURCES = oidtranstbl.h
 CLEANFILES = oidtranstbl.h
 
 TESTS = cert-basic t-crl-parser t-dnparser t-oid t-reader t-cms-parser \
-	t-der-builder
+        t-der-builder t-gost-cert
 
 AM_CFLAGS = $(GPG_ERROR_CFLAGS) $(COVERAGE_CFLAGS)
 if HAVE_W32_SYSTEM
@@ -66,7 +67,7 @@ endif
 
 noinst_HEADERS = t-common.h
 noinst_PROGRAMS = $(TESTS) t-ocsp
-LDADD = ../src/libksba.la $(GPG_ERROR_LIBS) @LDADD_FOR_TESTS_KLUDGE@
+LDADD = ../src/libksba.la $(GPG_ERROR_LIBS) -lgcrypt @LDADD_FOR_TESTS_KLUDGE@
 
 t_ocsp_SOURCES = t-ocsp.c sha1.c
 
