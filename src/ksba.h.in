@@ -383,7 +383,7 @@ gpg_error_t ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
                                               const unsigned char *digest,
                                               size_t digest_len);
 
-
+gpg_error_t ksba_cms_check_recipientinfo_vko (ksba_cms_t cms, int idx);
 gpg_error_t ksba_cms_set_content_type (ksba_cms_t cms, int what,
                                        ksba_content_type_t type);
 gpg_error_t ksba_cms_add_digest_algo (ksba_cms_t cms, const char *oid);
