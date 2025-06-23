@@ -1975,6 +1975,118 @@ ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
 }
 
 
+/* Check a RecipientInfo using GOST VKO.  This validates the
+ * originator key format, allowed algorithm OIDs, and the UKM.  In
+ * addition the certificate of the recipient is checked for the VKO
+ * keyUsage and the TK-26 policy.  */
+gpg_error_t
+ksba_cms_check_recipientinfo_vko (ksba_cms_t cms, int idx)
+{
+  gpg_error_t err;
+  struct value_tree_s *vt;
+  AsnNode root, n;
+  char *algo = NULL;
+  struct tag_info ti;
+
+  if (!cms || idx < 0)
+    return gpg_error (GPG_ERR_INV_VALUE);
+  if (!cms->recp_info)
+    return gpg_error (GPG_ERR_NO_DATA);
+
+  for (vt = cms->recp_info; vt && idx; vt = vt->next, idx--)
+    ;
+  if (!vt)
+    return gpg_error (GPG_ERR_INV_INDEX);
+
+  root = _ksba_asn_find_node (vt->root, "RecipientInfo.kari");
+  if (!root)
+    return gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO);
+
+  /* Check the key encryption algorithm.  */
+  n = _ksba_asn_find_node (root, "kari.keyEncryptionAlgorithm");
+  if (!n || n->off == -1)
+    return gpg_error (GPG_ERR_INV_KEYINFO);
+  err = _ksba_parse_algorithm_identifier2 (vt->image + n->off,
+                                           n->nhdr + n->len, NULL,
+                                           &algo, NULL, NULL);
+  if (err)
+    goto leave;
+  if (strcmp (algo, "1.2.643.2.2.96"))
+    { err = gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO); goto leave; }
+
+  /* Check the originator key.  */
+  n = _ksba_asn_find_node (root, "kari.originator.originatorKey");
+  if (!n || n->off == -1)
+    { err = gpg_error (GPG_ERR_INV_KEYINFO); goto leave; }
+  {
+    const unsigned char *der = vt->image + n->off;
+    size_t derlen = n->nhdr + n->len;
+    char *tmpoid = NULL;
+    size_t nread;
+
+    err = _ksba_parse_context_tag (&der, &derlen, &ti, 1);
+    if (err)
+      goto leave;
+    err = _ksba_parse_algorithm_identifier2 (der, derlen, &nread,
+                                             &tmpoid, NULL, NULL);
+    if (err)
+      { xfree (tmpoid); goto leave; }
+    if (strncmp (tmpoid, "1.2.643", 7))
+      { xfree (tmpoid); err = gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO); goto leave; }
+    der += nread;
+    derlen -= nread;
+    xfree (tmpoid);
+
+    err = _ksba_ber_parse_tl (&der, &derlen, &ti);
+    if (err)
+      goto leave;
+    if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_BIT_STRING
+          && !ti.is_constructed) || ti.length > derlen)
+      { err = gpg_error (GPG_ERR_INV_OBJ); goto leave; }
+    der += ti.length;
+    derlen -= ti.length;
+    if (derlen)
+      { err = gpg_error (GPG_ERR_INV_OBJ); goto leave; }
+  }
+
+  /* Check the UKM.  */
+  n = _ksba_asn_find_node (root, "kari.ukm");
+  if (!n || n->off == -1)
+    { err = gpg_error (GPG_ERR_INV_CMS_OBJ); goto leave; }
+  else
+    {
+      const unsigned char *der = vt->image + n->off;
+      size_t derlen = n->nhdr + n->len;
+
+      err = _ksba_parse_octet_string (&der, &derlen, &ti);
+      if (err)
+        goto leave;
+      if (!ti.length)
+        { err = gpg_error (GPG_ERR_INV_CMS_OBJ); goto leave; }
+    }
+
+  {
+    ksba_cert_t cert = ksba_cms_get_cert (cms, idx);
+    if (cert)
+      {
+        err = _ksba_check_key_usage_for_gost (cert,
+                                              KSBA_KEYUSAGE_KEY_ENCIPHERMENT);
+        if (!err)
+          err = check_policy_tk26 (cert);
+        ksba_cert_release (cert);
+        if (err)
+          goto leave;
+      }
+  }
+
+  err = 0;
+
+leave:
+  xfree (algo);
+  return err;
+}
+
+
 
 /*
   Code to create CMS structures
