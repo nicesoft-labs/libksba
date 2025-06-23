@@ -2455,7 +2455,7 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
       goto leave;
     }
 
-  if (!strcmp (sv->algo, "gost") || !strncmp (sv->algo, "1.2.643", 7))
+  if (is_gost_algo (sv->algo))
     {
       ksba_cert_t cert = ksba_cms_get_cert (cms, idx);
       if (cert)
