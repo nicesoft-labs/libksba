@@ -1968,6 +1968,33 @@ _ksba_encval_to_sexp (const unsigned char *der, size_t derlen,
  *     (s <octetstring>)
  *   (ukm <octetstring>)
  *   (encr-algo <oid>)
+ *   (wrap-algo <oid>)))
+ *
+ * E is the ephemeral public key and S is the encrypted key.  The user
+ * keying material (ukm) is optional.  The S-expression will be
+ * returned in a string which the caller must free.
+ */
+gpg_error_t
+_ksba_encval_kari_to_sexp (const unsigned char *der, size_t derlen,
+                           const char *keyencralgo, const char *keywrapalgo,
+                           const void *enckey, size_t enckeylen,
+                           ksba_sexp_t *r_string)
+{
+  gpg_error_t err;
+  struct tag_info ti;
+  size_t save_derlen = derlen;
+
+  err = parse_context_tag (&der, &derlen, &ti, 1);
+  if (err)
+    return err;
+  if (save_derlen < ti.nhdr)
+    return gpg_error (GPG_ERR_INV_BER);
+  derlen = save_derlen - ti.nhdr;
+  return cryptval_to_sexp (2, der, derlen,
+                           keyencralgo, keywrapalgo, enckey, enckeylen,
+                           r_string);
+}
+
 
 /* Check keyUsage flags for GOST certificates.  */
 gpg_error_t
@@ -1998,30 +2025,4 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
     }
 
   return 0;
-}
- *   (wrap-algo <oid>)))
- *
- * E is the ephemeral public key and S is the encrypted key.  The user
- * keying material (ukm) is optional.  The S-expression will be
- * returned in a string which the caller must free.
- */
-gpg_error_t
-_ksba_encval_kari_to_sexp (const unsigned char *der, size_t derlen,
-                           const char *keyencralgo, const char *keywrapalgo,
-                           const void *enckey, size_t enckeylen,
-                           ksba_sexp_t *r_string)
-{
-  gpg_error_t err;
-  struct tag_info ti;
-  size_t save_derlen = derlen;
-
-  err = parse_context_tag (&der, &derlen, &ti, 1);
-  if (err)
-    return err;
-  if (save_derlen < ti.nhdr)
-    return gpg_error (GPG_ERR_INV_BER);
-  derlen = save_derlen - ti.nhdr;
-  return cryptval_to_sexp (2, der, derlen,
-                           keyencralgo, keywrapalgo, enckey, enckeylen,
-                           r_string);
 }
