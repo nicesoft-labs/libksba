@@ -2425,6 +2425,22 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
       goto leave;
     }
 
+  if (!strcmp (sv->algo, "gost") || !strncmp (sv->algo, "1.2.643", 7))
+    {
+      ksba_cert_t cert = ksba_cms_get_cert (cms, idx);
+      if (cert)
+        {
+          err = _ksba_check_key_usage_for_gost (cert,
+                                                KSBA_KEYUSAGE_DIGITAL_SIGNATURE);
+          if (!err)
+            err = check_policy_tk26 (cert);
+          ksba_cert_release (cert);
+          if (err)
+            goto leave;
+        }
+    }
+	
+	
   *sv_tail = sv;
   return 0; /* Success.  */
 
