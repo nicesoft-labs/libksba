@@ -1110,8 +1110,6 @@ ksba_cms_get_message_digest (ksba_cms_t cms, int idx,
           memcpy (*r_digest, cms->authdata.mac, cms->authdata.mac_len);
           *r_digest_len = cms->authdata.mac_len;
         }
-
-
       else if (idx == 1) /* Return authAttr.  */
         {
           if (!cms->authdata.attr || !cms->authdata.attr_len)
@@ -1476,31 +1474,6 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
   struct value_tree_s *vt;
   char *keyencralgo = NULL; /* Key encryption algo.  */
   char *parm = NULL;        /* Helper to get the parms of kencralgo.  */
-      char *algoid = NULL;
-
-      if (err)
-        goto leave;
-
-      n = _ksba_asn_find_node (root,
-                               "ktri.keyEncryptionAlgorithm.algorithm");
-      if (n)
-        algoid = _ksba_oid_node_to_str (vt->image, n);
-      if (algoid && !strncmp (algoid, "1.2.643", 7))
-        {
-          ksba_cert_t cert = ksba_cms_get_cert (cms, idx);
-          if (cert)
-            {
-              err = _ksba_check_key_usage_for_gost (cert,
-                                                    KSBA_KEYUSAGE_KEY_ENCIPHERMENT);
-              if (!err)
-                err = check_policy_tk26 (cert);
-              ksba_cert_release (cert);
-              if (err)
-                goto leave;
-            }
-        }
-      xfree (algoid);
-      char *algoid = NULL;
   size_t parmlen;
   char *parm2 = NULL;
   size_t parm2len;
@@ -1531,6 +1504,7 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
 
   if (!strcmp (root->name, "ktri"))
     {
+      char *algoid = NULL;
       n = _ksba_asn_find_node (root, "ktri.keyEncryptionAlgorithm");
       if (!n || n->off == -1)
         return NULL;
@@ -1539,9 +1513,32 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
         (vt->image + n->off,
          n->nhdr + n->len + ((!n2||n2->off == -1)? 0:(n2->nhdr+n2->len)),
          &string);
+      if (err)
+        goto leave;
+
+      n = _ksba_asn_find_node (root,
+                               "ktri.keyEncryptionAlgorithm.algorithm");
+      if (n)
+        algoid = _ksba_oid_node_to_str (vt->image, n);
+      if (algoid && !strncmp (algoid, "1.2.643", 7))
+        {
+          ksba_cert_t cert = ksba_cms_get_cert (cms, idx);
+          if (cert)
+            {
+              err = _ksba_check_key_usage_for_gost (cert,
+                                                    KSBA_KEYUSAGE_KEY_ENCIPHERMENT);
+              if (!err)
+                err = check_policy_tk26 (cert);
+              ksba_cert_release (cert);
+              if (err)
+                goto leave;
+            }
+        }
+      xfree (algoid);
     }
   else if (!strcmp (root->name, "kari"))
     {
+       char *algoid = NULL;
       /* _ksba_asn_node_dump_all (root, stderr); */
 
       /* Get the encrypted key.  Result is in (DER,DERLEN)  */
@@ -1568,6 +1565,36 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
           err = gpg_error (GPG_ERR_INV_KEYINFO);
           goto leave;
         }
+      err = _ksba_parse_algorithm_identifier2 (vt->image + n->off,
+                                               n->nhdr + n->len, NULL,
+                                               &keyencralgo, &parm, &parmlen);
+      if (err)
+        goto leave;
+      if (!parm)
+        {
+          err = gpg_error (GPG_ERR_INV_KEYINFO);
+          goto leave;
+        }
+      err = _ksba_parse_algorithm_identifier (parm, parmlen,NULL, &keywrapalgo);
+      if (err)
+        goto leave;
+
+      /* gpgrt_log_debug ("%s: keyencralgo='%s'\n", __func__, keyencralgo); */
+      /* gpgrt_log_debug ("%s: keywrapalgo='%s'\n", __func__, keywrapalgo); */
+
+      /* Get the ephemeral public key.  */
+      n = _ksba_asn_find_node (root, "kari..originator..originatorKey");
+      if (!n || n->off == -1)
+        {
+          err = gpg_error (GPG_ERR_INV_KEYINFO);
+          goto leave;
+        }
+      err = _ksba_encval_kari_to_sexp (vt->image + n->off, n->nhdr + n->len,
+                                       keyencralgo, keywrapalgo, der, derlen,
+                                       &string);
+      if (err)
+        goto leave;
+
       algoid = keyencralgo;
       if (algoid && !strncmp (algoid, "1.2.643", 7))
         {
@@ -1582,8 +1609,12 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
               if (err)
                 goto leave;
             }
-        }
+        
 
+      /* gpgrt_log_debug ("%s: encryptedKey:\n", __func__); */
+      /* dbg_print_sexp (string); */
+    }
+  else if (!strcmp (root->name, "kekri"))
     {
       char *algoid = NULL;
 
@@ -1622,40 +1653,6 @@ ksba_cms_get_enc_val (ksba_cms_t cms, int idx)
         }
       xfree (algoid);
     }
-                                               n->nhdr + n->len, NULL,
-                                               &keyencralgo, &parm, &parmlen);
-      if (err)
-        goto leave;
-      if (!parm)
-        {
-          err = gpg_error (GPG_ERR_INV_KEYINFO);
-          goto leave;
-        }
-      err = _ksba_parse_algorithm_identifier (parm, parmlen,NULL, &keywrapalgo);
-      if (err)
-        goto leave;
-
-      /* gpgrt_log_debug ("%s: keyencralgo='%s'\n", __func__, keyencralgo); */
-      /* gpgrt_log_debug ("%s: keywrapalgo='%s'\n", __func__, keywrapalgo); */
-
-      /* Get the ephemeral public key.  */
-      n = _ksba_asn_find_node (root, "kari..originator..originatorKey");
-      if (!n || n->off == -1)
-        {
-          err = gpg_error (GPG_ERR_INV_KEYINFO);
-          goto leave;
-        }
-      err = _ksba_encval_kari_to_sexp (vt->image + n->off, n->nhdr + n->len,
-                                       keyencralgo, keywrapalgo, der, derlen,
-                                       &string);
-      if (err)
-        goto leave;
-
-      /* gpgrt_log_debug ("%s: encryptedKey:\n", __func__); */
-      /* dbg_print_sexp (string); */
-    }
-  else if (!strcmp (root->name, "kekri"))
-    return NULL; /*GPG_ERR_UNSUPPORTED_CMS_OBJ*/
   else if (!strcmp (root->name, "pwri"))
     {
       /* _ksba_asn_node_dump_all (root, stderr); */
@@ -1821,20 +1818,6 @@ ksba_cms_hash_signed_attrs (ksba_cms_t cms, int idx)
   cms->hash_fnc (cms->hash_fnc_arg,
                  si->image + n->off + 1, n->nhdr + n->len - 1);
 
-  {
-    ksba_cert_t cert = ksba_cms_get_cert (cms, idx);
-    if (cert)
-      {
-        err = _ksba_check_key_usage_for_gost (cert,
-                                              KSBA_KEYUSAGE_DIGITAL_SIGNATURE);
-        if (!err)
-          err = check_policy_tk26 (cert);
-        ksba_cert_release (cert);
-        if (err)
-          return err;
-      }
-  }
-
   return 0;
 }
 
@@ -1864,6 +1847,19 @@ ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
     ;
   if (!si)
     return -1;
+  {
+    ksba_cert_t cert = ksba_cms_get_cert (cms, idx);
+    if (cert)
+      {
+        err = _ksba_check_key_usage_for_gost (cert,
+                                              KSBA_KEYUSAGE_DIGITAL_SIGNATURE);
+        if (!err)
+          err = check_policy_tk26 (cert);
+        ksba_cert_release (cert);
+        if (err)
+          return err;
+      }
+  }
 
   nsiginfo = _ksba_asn_find_node (si->root, "SignerInfo.signedAttrs");
   if (!nsiginfo)
