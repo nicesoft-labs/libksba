@@ -63,6 +63,13 @@ invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
   for (size_t i = 0; i < len; i++)
     dst[i] = src[len - 1 - i];
 }
+/* Return true if ALGO specifies a GOST signature algorithm.  */
+static int
+is_gost_algo (const char *algo)
+{
+  return (algo
+          && (!strcmp (algo, "gost") || !strncmp (algo, "1.2.643", 7)));
+}
 
 /* Check for the presence of a TK-26 policy in CERT.  The policy is
    considered valid if any policyIdentifier OID starts with "1.2.643".
@@ -3675,27 +3682,59 @@ build_signed_data_rest (ksba_cms_t cms)
 	  goto leave;
 	}
 
-      if (sv->ecc.r && (!strncmp (sv->algo, "1.2.643", 7) || !strcmp (sv->algo, "gost")))
+      if (sv->ecc.r && is_gost_algo (sv->algo))
         {
           /* GOST signatures are stored as an OCTET STRING with
-             little-endian S followed by R.  */
-          unsigned char *tmp;
+             little-endian S followed by R.  We build this format by
+             first inverting R and S.  */
+          unsigned char *rrev, *srev, *tmp;
           if (sv->ecc.rlen != sv->valuelen)
             {
               err = gpg_error (GPG_ERR_INV_VALUE);
               goto leave;
             }
+
+          rrev = xtrymalloc (sv->ecc.rlen);
+          srev = xtrymalloc (sv->valuelen);
+          if (!rrev || !srev)
+            {
+              err = gpg_error_from_syserror ();
+              xfree (rrev);
+              xfree (srev);
+              goto leave;
+            }
+          invert_bytes (rrev, sv->ecc.r, sv->ecc.rlen);
+          invert_bytes (srev, sv->value, sv->valuelen);
+
+
           tmp = xtrymalloc (sv->valuelen + sv->ecc.rlen);
           if (!tmp)
             {
               err = gpg_error_from_syserror ();
               goto leave;
             }
-          invert_bytes (tmp, sv->value, sv->valuelen);
-          invert_bytes (tmp + sv->valuelen, sv->ecc.r, sv->ecc.rlen);
+          memcpy (tmp, srev, sv->valuelen);
+          memcpy (tmp + sv->valuelen, rrev, sv->ecc.rlen);
+
+          /* Build the canonical S-expression.  */
+          {
+            struct stringbuf sb;
+
+            init_stringbuf (&sb, sv->valuelen + sv->ecc.rlen + 40);
+            put_stringbuf (&sb, "(sig-val (gost (r ");
+            put_stringbuf_mem_sexp (&sb, rrev, sv->ecc.rlen);
+            put_stringbuf (&sb, ")(s ");
+            put_stringbuf_mem_sexp (&sb, srev, sv->valuelen);
+            put_stringbuf (&sb, ")))");
+            xfree (get_stringbuf (&sb));
+            deinit_stringbuf (&sb);
+          }
+
           err = _ksba_der_store_octet_string (n, tmp,
                                              sv->valuelen + sv->ecc.rlen);
           xfree (tmp);
+          xfree (rrev);
+          xfree (srev);
           if (err)
             goto leave;
         }
