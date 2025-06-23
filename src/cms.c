@@ -1171,6 +1171,8 @@ ksba_cms_get_message_digest (ksba_cms_t cms, int idx,
                              char **r_digest, size_t *r_digest_len)
 {
   AsnNode nsiginfo, n;
+  AsnNode seq_ct = NULL;
+  AsnNode seq_md = NULL;
   struct signer_info_s *si;
 
   if (!cms || !r_digest || !r_digest_len)
@@ -1945,22 +1947,38 @@ ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
   if (!nsiginfo)
     return gpg_error (GPG_ERR_NO_DATA);
 
+  /* Check for the content-type attribute and remember its location.  */
   err = ksba_oid_from_str (content_oid, &oidbuf, &oidlen);
   if (err)
     return err;
   n = _ksba_asn_find_type_value (si->image, nsiginfo, 0, oidbuf, oidlen);
   if (!n)
-    { xfree (oidbuf); return gpg_error (GPG_ERR_BAD_SIGNATURE); }
+    {
+      xfree (oidbuf);
+      return gpg_error (GPG_ERR_BAD_SIGNATURE);
+    }
   if (_ksba_asn_find_type_value (si->image, nsiginfo, 1, oidbuf, oidlen))
-    { xfree (oidbuf); return gpg_error (GPG_ERR_DUP_VALUE); }
+    {
+      xfree (oidbuf);
+      return gpg_error (GPG_ERR_DUP_VALUE);
+    }
+  seq_ct = find_up (n);
   xfree (oidbuf);
 
+  /* Locate the message-digest attribute and verify the order.  */
   n = _ksba_asn_find_type_value (si->image, nsiginfo, 0,
-                                 oid_messageDigest, DIM(oid_messageDigest));
+                                 oid_messageDigest, DIM (oid_messageDigest));
   if (!n || _ksba_asn_find_type_value (si->image, nsiginfo, 1,
                                        oid_messageDigest,
-                                       DIM(oid_messageDigest)))
+                                       DIM (oid_messageDigest)))
     return gpg_error (GPG_ERR_BAD_SIGNATURE);
+  seq_md = find_up (n);
+  if (!seq_ct || !seq_md || seq_ct->off == -1 || seq_md->off == -1)
+    return gpg_error (GPG_ERR_BUG);
+  if (seq_ct->off > seq_md->off)
+    return gpg_error (GPG_ERR_BAD_SIGNATURE);
+  /* The value is is a SET OF OCTET STRING but the set must have exactly
+     one OCTET STRING.  (rfc2630 11.2)  */
   if (!(n->type == TYPE_SET_OF && n->down
         && n->down->type == TYPE_OCTET_STRING && !n->down->right))
     return gpg_error (GPG_ERR_INV_CMS_OBJ);
