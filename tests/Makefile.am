@@ -48,15 +48,16 @@ EXTRA_DIST = $(test_certs)  mkoidtbl.awk \
              samples/detached-sig.cms \
 	     samples/rsa-sample1.p7m  samples/rsa-sample1.p7m \
 	     samples/rsa-sample1.p7s  samples/rsa-sample1.p7s \
-	     samples/ecdh-sample1.p7m samples/ecdh-sample1.p7m.asn \
-	     samples/ecdsa-sample1.p7s samples/ecdsa-sample1.p7s.asn
+             samples/ecdh-sample1.p7m samples/ecdh-sample1.p7m.asn \
+             samples/ecdsa-sample1.p7s samples/ecdsa-sample1.p7s.asn \
+             samples/gost_test.txt samples/gost_test.txt.p7s
 
 
 BUILT_SOURCES = oidtranstbl.h
 CLEANFILES = oidtranstbl.h
 
 TESTS = cert-basic t-crl-parser t-dnparser t-oid t-reader t-cms-parser \
-        t-der-builder t-gost-cert
+        t-der-builder t-gost-cert t-gost-cms
 
 AM_CFLAGS = $(GPG_ERROR_CFLAGS) $(COVERAGE_CFLAGS)
 if HAVE_W32_SYSTEM
