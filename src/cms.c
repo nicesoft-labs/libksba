@@ -1677,6 +1677,36 @@ ksba_cms_set_hash_function (ksba_cms_t cms,
 }
 
 
+/* hash the signed attributes of the given signer */
+gpg_error_t
+ksba_cms_hash_signed_attrs (ksba_cms_t cms, int idx)
+{
+  AsnNode n;
+  struct signer_info_s *si;
+
+  if (!cms)
+    return gpg_error (GPG_ERR_INV_VALUE);
+  if (!cms->hash_fnc)
+    return gpg_error (GPG_ERR_MISSING_ACTION);
+  if (idx < 0)
+    return -1;
+
+  for (si=cms->signer_info; si && idx; si = si->next, idx-- )
+    ;
+  if (!si)
+    return -1;
+
+  n = _ksba_asn_find_node (si->root, "SignerInfo.signedAttrs");
+  if (!n || n->off == -1)
+    return gpg_error (GPG_ERR_NO_VALUE);
+
+  /* We don't hash the implicit tag [0] but a SET tag */
+  cms->hash_fnc (cms->hash_fnc_arg, "\x31", 1);
+  cms->hash_fnc (cms->hash_fnc_arg,
+                 si->image + n->off + 1, n->nhdr + n->len - 1);
+
+  return 0;
+}
 
 /*
  * Check signed attributes for GOST signatures.  This verifies that the
@@ -1738,36 +1768,6 @@ ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
   return 0;
 }
 
-/* hash the signed attributes of the given signer */
-gpg_error_t
-ksba_cms_hash_signed_attrs (ksba_cms_t cms, int idx)
-{
-  AsnNode n;
-  struct signer_info_s *si;
-
-  if (!cms)
-    return gpg_error (GPG_ERR_INV_VALUE);
-  if (!cms->hash_fnc)
-    return gpg_error (GPG_ERR_MISSING_ACTION);
-  if (idx < 0)
-    return -1;
-
-  for (si=cms->signer_info; si && idx; si = si->next, idx-- )
-    ;
-  if (!si)
-    return -1;
-
-  n = _ksba_asn_find_node (si->root, "SignerInfo.signedAttrs");
-  if (!n || n->off == -1)
-    return gpg_error (GPG_ERR_NO_VALUE);
-
-  /* We don't hash the implicit tag [0] but a SET tag */
-  cms->hash_fnc (cms->hash_fnc_arg, "\x31", 1);
-  cms->hash_fnc (cms->hash_fnc_arg,
-                 si->image + n->off + 1, n->nhdr + n->len - 1);
-
-  return 0;
-}
 
 
 /*
@@ -2125,8 +2125,6 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
           return gpg_error (GPG_ERR_ENOMEM);
         }
     }
-         || !strcmp (sv->algo, "gost")
-         || !strncmp (sv->algo, "1.2.643", 7)
   else if (n==5 && !memcmp (s, "ecdsa", 5))
     {
       /* Use a placeholder for later fixup.  */
@@ -2154,6 +2152,8 @@ ksba_cms_set_sig_val (ksba_cms_t cms, int idx, ksba_const_sexp_t sigval)
          || !strcmp (sv->algo, "1.2.840.10045.4.3.2") /* ecdsa-with-SHA256 */
          || !strcmp (sv->algo, "1.2.840.10045.4.3.3") /* ecdsa-with-SHA384 */
          || !strcmp (sv->algo, "1.2.840.10045.4.3.4") /* ecdsa-with-SHA512 */
+         || !strcmp (sv->algo, "gost")
+         || !strncmp (sv->algo, "1.2.643", 7)
          );
 
   xfree (sv->value); sv->value = NULL;
@@ -3423,31 +3423,7 @@ build_signed_data_rest (ksba_cms_t cms)
             oid = "1.2.840.10045.4.3.4";  /* ecdsa-with-SHA512 */
           else
             {
-      if (sv->ecc.r && (!strncmp (sv->algo, "1.2.643", 7) || !strcmp (sv->algo, "gost")))
-        {
-          /* GOST signatures are stored as an OCTET STRING with
-             little-endian S followed by R.  */
-          unsigned char *tmp;
-          if (sv->ecc.rlen != sv->valuelen)
-            {
-              err = gpg_error (GPG_ERR_INV_VALUE);
-              goto leave;
-            }
-          tmp = xtrymalloc (sv->valuelen + sv->ecc.rlen);
-          if (!tmp)
-            {
-              err = gpg_error_from_syserror ();
-              goto leave;
-            }
-          invert_bytes (tmp, sv->value, sv->valuelen);
-          invert_bytes (tmp + sv->valuelen, sv->ecc.r, sv->ecc.rlen);
-          err = _ksba_der_store_octet_string (n, tmp,
-                                             sv->valuelen + sv->ecc.rlen);
-          xfree (tmp);
-          if (err)
-            goto leave;
-        }
-      else if (sv->ecc.r)  /* ECDSA */
+              err = gpg_error (GPG_ERR_DIGEST_ALGO);
               goto leave;
             }
         }
@@ -3481,7 +3457,31 @@ build_signed_data_rest (ksba_cms_t cms)
 	  goto leave;
 	}
 
-      if (sv->ecc.r)  /* ECDSA */
+      if (sv->ecc.r && (!strncmp (sv->algo, "1.2.643", 7) || !strcmp (sv->algo, "gost")))
+        {
+          /* GOST signatures are stored as an OCTET STRING with
+             little-endian S followed by R.  */
+          unsigned char *tmp;
+          if (sv->ecc.rlen != sv->valuelen)
+            {
+              err = gpg_error (GPG_ERR_INV_VALUE);
+              goto leave;
+            }
+          tmp = xtrymalloc (sv->valuelen + sv->ecc.rlen);
+          if (!tmp)
+            {
+              err = gpg_error_from_syserror ();
+              goto leave;
+            }
+          invert_bytes (tmp, sv->value, sv->valuelen);
+          invert_bytes (tmp + sv->valuelen, sv->ecc.r, sv->ecc.rlen);
+          err = _ksba_der_store_octet_string (n, tmp,
+                                             sv->valuelen + sv->ecc.rlen);
+          xfree (tmp);
+          if (err)
+            goto leave;
+        }
+      else if (sv->ecc.r)  /* ECDSA */
         {
           unsigned char *tmpder;
           size_t tmpderlen;
