@@ -125,6 +125,10 @@ static const struct algo_table_s pk_algo_table[] = {
     "1.2.643.7.1.1.1.2", /*  gostPublicKey-2012-512 */
     "\x2a\x85\x03\x07\x01\x01\x01\x02", 8,
     1, PKALGO_ECC, "ecc", "q", "\x80" },
+  { /* GOST VKO key agreement */
+    "1.2.643.2.2.96",
+    "\x2a\x85\x03\x02\x02\x60", 6,
+    1, PKALGO_ECC, "ecc", "q", "\x80" },
   { /* iso.identified-organization.thawte.110 */
     "1.3.101.110", /* X25519 */
     "\x2b\x65\x6e", 3,
@@ -346,7 +350,10 @@ static const struct algo_table_s enc_algo_table[] = {
     "1.2.643.7.1.1.1.2", /*GOST R34.10-2012-512 */
     "\x2A\x85\x03\x07\x01\x01\x01\x02", 8,
     1, PKALGO_ECC, "ecc", "a", "\x80" },
-
+  {
+    "1.2.643.2.2.96", /*GOST VKO*/
+    "\x2A\x85\x03\x02\x02\x60", 6,
+    1, PKALGO_ECC, "ecc", "a", "\x80" },
   {NULL}
 };
 
