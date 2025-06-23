@@ -100,6 +100,51 @@ check_policy_tk26 (ksba_cert_t cert)
   return ok? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
 }
 
+/* Extract the subjectKeyIdentifier from CERT into a newly allocated
+   buffer.  */
+static gpg_error_t
+get_subject_key_id (ksba_cert_t cert, unsigned char **r_buf, size_t *r_len)
+{
+  gpg_error_t err;
+  ksba_sexp_t keyid = NULL;
+  const unsigned char *s;
+  size_t n;
+
+  *r_buf = NULL;
+  *r_len = 0;
+  err = ksba_cert_get_subj_key_id (cert, NULL, &keyid);
+  if (err)
+    return err;
+
+  s = (const unsigned char *)keyid;
+  if (*s != '(')
+    {
+      err = gpg_error (GPG_ERR_INV_CERT_OBJ);
+      goto leave;
+    }
+  s++;
+  n = snext (&s);
+  if (!n || s[n] != ')')
+    {
+      err = gpg_error (GPG_ERR_INV_CERT_OBJ);
+      goto leave;
+    }
+  *r_buf = xtrymalloc (n);
+  if (!*r_buf)
+    {
+      err = gpg_error_from_syserror ();
+      goto leave;
+    }
+  memcpy (*r_buf, s, n);
+  *r_len = n;
+  err = 0;
+
+leave:
+  xfree (keyid);
+  return err;
+}
+
+
 static gpg_error_t ct_parse_data (ksba_cms_t cms);
 static gpg_error_t ct_parse_signed_data (ksba_cms_t cms);
 static gpg_error_t ct_parse_enveloped_data (ksba_cms_t cms);
@@ -638,6 +683,7 @@ ksba_cms_release (ksba_cms_t cms)
       xfree (cms->cert_list->enc_val.ecdh.e);
       xfree (cms->cert_list->enc_val.ecdh.wrap_algo);
       xfree (cms->cert_list->enc_val.ecdh.encr_algo);
+      xfree (cms->cert_list->enc_val.ecdh.ukm);
       xfree (cms->cert_list);
       cms->cert_list = cl;
     }
@@ -647,6 +693,10 @@ ksba_cms_release (ksba_cms_t cms)
       ksba_cert_release (cms->cert_info_list->cert);
       xfree (cms->cert_info_list->enc_val.algo);
       xfree (cms->cert_info_list->enc_val.value);
+      xfree (cms->cert_info_list->enc_val.ecdh.e);
+      xfree (cms->cert_info_list->enc_val.ecdh.wrap_algo);
+      xfree (cms->cert_info_list->enc_val.ecdh.encr_algo);
+      xfree (cms->cert_info_list->enc_val.ecdh.ukm);
       xfree (cms->cert_info_list);
       cms->cert_info_list = cl;
     }
@@ -2499,12 +2549,14 @@ ksba_cms_set_enc_val (ksba_cms_t cms, int idx, ksba_const_sexp_t encval)
     }
   s += n;
 
-  ecdh = !strcmp (cl->enc_val.algo, "1.2.840.10045.2.1");
-
+  ecdh = (!strcmp (cl->enc_val.algo, "1.2.840.10045.2.1")
+          || !strncmp (cl->enc_val.algo, "1.2.643", 7));
   xfree (cl->enc_val.value);  cl->enc_val.value = NULL;
   xfree (cl->enc_val.ecdh.e); cl->enc_val.ecdh.e = NULL;
   xfree (cl->enc_val.ecdh.encr_algo); cl->enc_val.ecdh.encr_algo = NULL;
   xfree (cl->enc_val.ecdh.wrap_algo); cl->enc_val.ecdh.wrap_algo = NULL;
+  xfree (cl->enc_val.ecdh.ukm); cl->enc_val.ecdh.ukm = NULL; cl->enc_val.ecdh.ukmlen = 0;
+
 
   while (*s == '(')
     {
@@ -2564,6 +2616,15 @@ ksba_cms_set_enc_val (ksba_cms_t cms, int idx, ksba_const_sexp_t encval)
             return gpg_error (GPG_ERR_ENOMEM);
           memcpy (cl->enc_val.ecdh.wrap_algo, s, n);
           cl->enc_val.ecdh.wrap_algo[n] = 0;
+        }
+      else if (namelen == 3 && !memcmp (name, "ukm", 3))
+        {
+          xfree (cl->enc_val.ecdh.ukm);
+          cl->enc_val.ecdh.ukm = xtrymalloc (n);
+          if (!cl->enc_val.ecdh.ukm)
+            return gpg_error (GPG_ERR_ENOMEM);
+          memcpy (cl->enc_val.ecdh.ukm, s, n);
+          cl->enc_val.ecdh.ukmlen = n;
         }
       /* (We ignore all other parameter of the (key value) form.)  */
 
@@ -3801,10 +3862,12 @@ build_enveloped_data_header (ksba_cms_t cms)
   ksba_der_t dbld = NULL;
   int any_ecdh = 0;
 
-  /* See whether we have any ECDH recipients.  */
+  /* See whether we have any ECDH or GOST recipients requiring CMS v2.  */
   for (certlist = cms->cert_list; certlist; certlist = certlist->next)
-    if (certlist->enc_val.ecdh.e)
-      {
+    if (certlist->enc_val.ecdh.e
+        || (certlist->enc_val.algo
+            && !strncmp (certlist->enc_val.algo, "1.2.643", 7)))
+     {
         any_ecdh = 1;
         break;
       }
@@ -3895,8 +3958,108 @@ build_enveloped_data_header (ksba_cms_t cms)
             goto leave;
         }
 	    
-      if (!certlist->enc_val.ecdh.e)  /* RSA (ktri) */
+      if (certlist->enc_val.ecdh.e) /* ECDH/VKO */
         {
+          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* kari */
+          _ksba_der_add_ptr (dbld, 0, TYPE_INTEGER, "\x03", 1);
+
+          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 0); /* originator */
+          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* originatorKey */
+          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* algorithm */
+          _ksba_der_add_oid (dbld, certlist->enc_val.algo);
+          _ksba_der_add_end (dbld);
+          _ksba_der_add_bts (dbld, certlist->enc_val.ecdh.e,
+                             certlist->enc_val.ecdh.elen, 0);
+          _ksba_der_add_end (dbld); /* end originatorKey */
+          _ksba_der_add_end (dbld); /* end originator */
+
+          if (certlist->enc_val.ecdh.ukm && certlist->enc_val.ecdh.ukmlen)
+            {
+              _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* ukm */
+              _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING,
+                                 certlist->enc_val.ecdh.ukm,
+                                 certlist->enc_val.ecdh.ukmlen);
+            }
+
+          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* keyEncrAlgo */
+          _ksba_der_add_oid (dbld, certlist->enc_val.ecdh.encr_algo);
+          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
+          _ksba_der_add_oid (dbld, certlist->enc_val.ecdh.wrap_algo);
+          _ksba_der_add_end (dbld);
+          _ksba_der_add_end (dbld); /* end keyEncrAlgo */
+          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* recpEncrKeys */
+          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* recpEncrKey */
+
+          if (certlist->enc_val.algo && !strncmp (certlist->enc_val.algo,"1.2.643",7))
+            {
+              unsigned char *ski; size_t skilen;
+              err = get_subject_key_id (certlist->cert, &ski, &skilen);
+              if (err)
+                goto leave;
+              _ksba_der_add_tag (dbld, CLASS_CONTEXT, 0); /* rKeyId */
+              _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
+              _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING, ski, skilen);
+              _ksba_der_add_end (dbld);
+              _ksba_der_add_end (dbld); /* rKeyId */
+              xfree (ski);
+            }
+          else
+            {
+              _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
+              err = _ksba_cert_get_issuer_dn_ptr (certlist->cert, &der, &derlen);
+              if (err)
+                goto leave;
+              _ksba_der_add_der (dbld, der, derlen);
+              err = _ksba_cert_get_serial_ptr (certlist->cert, &der, &derlen);
+              if (err)
+                goto leave;
+              _ksba_der_add_der (dbld, der, derlen);
+              _ksba_der_add_end (dbld);
+            }
+
+          if (!certlist->enc_val.value)
+            {
+              err = gpg_error (GPG_ERR_MISSING_VALUE);
+              goto leave;
+            }
+          _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING,
+                             certlist->enc_val.value,
+                             certlist->enc_val.valuelen);
+
+          _ksba_der_add_end (dbld); /* end recpEncrKey */
+          _ksba_der_add_end (dbld); /* end recpEncrKeys */
+        }
+      else if (certlist->enc_val.algo
+               && !strncmp (certlist->enc_val.algo, "1.2.643", 7)) /* KEK */
+        {
+          unsigned char *ski; size_t skilen;
+          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 2); /* kekri */
+          _ksba_der_add_ptr (dbld, 0, TYPE_INTEGER, "\x04", 1);
+
+          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* kekid */
+          err = get_subject_key_id (certlist->cert, &ski, &skilen);
+          if (err)
+            goto leave;
+          _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING, ski, skilen);
+          _ksba_der_add_end (dbld);
+          xfree (ski);
+
+          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* keyEncryptionAlgorithm */
+          _ksba_der_add_oid (dbld, certlist->enc_val.algo);
+          _ksba_der_add_ptr (dbld, 0, TYPE_NULL, NULL, 0);
+          _ksba_der_add_end (dbld);
+
+          if (!certlist->enc_val.value)
+            {
+              err = gpg_error (GPG_ERR_MISSING_VALUE);
+              goto leave;
+            }
+          _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING,
+                             certlist->enc_val.value,
+                             certlist->enc_val.valuelen);
+        }
+      else /* RSA (ktri) */
+       {
           _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
           /* We store a version of 0 because we are only allowed to
            * use the issuerAndSerialNumber for SPHINX */
@@ -3961,56 +4124,6 @@ build_enveloped_data_header (ksba_cms_t cms)
                              certlist->enc_val.valuelen);
 
         }
-      else /* ECDH */
-        {
-          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* kari */
-          _ksba_der_add_ptr (dbld, 0, TYPE_INTEGER, "\x03", 1);
-
-          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 0); /* originator */
-          _ksba_der_add_tag (dbld, CLASS_CONTEXT, 1); /* originatorKey */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* algorithm */
-          _ksba_der_add_oid (dbld, certlist->enc_val.algo);
-          _ksba_der_add_end (dbld);
-          _ksba_der_add_bts (dbld, certlist->enc_val.ecdh.e,
-                             certlist->enc_val.ecdh.elen, 0);
-          _ksba_der_add_end (dbld); /* end originatorKey */
-          _ksba_der_add_end (dbld); /* end originator */
-
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* keyEncrAlgo */
-          _ksba_der_add_oid (dbld, certlist->enc_val.ecdh.encr_algo);
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          _ksba_der_add_oid (dbld, certlist->enc_val.ecdh.wrap_algo);
-          _ksba_der_add_end (dbld);
-          _ksba_der_add_end (dbld); /* end keyEncrAlgo */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* recpEncrKeys */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE); /* recpEncrKey */
-
-          /* rid.issuerAndSerialNumber */
-          _ksba_der_add_tag (dbld, 0, TYPE_SEQUENCE);
-          err = _ksba_cert_get_issuer_dn_ptr (certlist->cert, &der, &derlen);
-          if (err)
-            goto leave;
-          _ksba_der_add_der (dbld, der, derlen);
-          err = _ksba_cert_get_serial_ptr (certlist->cert, &der, &derlen);
-          if (err)
-            goto leave;
-          _ksba_der_add_der (dbld, der, derlen);
-          _ksba_der_add_end (dbld);
-
-          /* encryptedKey  */
-          if (!certlist->enc_val.value)
-            {
-              err = gpg_error (GPG_ERR_MISSING_VALUE);
-              goto leave;
-            }
-          _ksba_der_add_ptr (dbld, 0, TYPE_OCTET_STRING,
-                             certlist->enc_val.value,
-                             certlist->enc_val.valuelen);
-
-          _ksba_der_add_end (dbld); /* end recpEncrKey */
-          _ksba_der_add_end (dbld); /* end recpEncrKeys */
-       }
-
       _ksba_der_add_end (dbld); /* End SEQUENCE (ktri or kari) */
     }
   _ksba_der_add_end (dbld);  /* End SET */
