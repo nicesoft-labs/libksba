@@ -930,6 +930,8 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
   const unsigned char *ctrl;
   const char *elem;
   struct stringbuf sb;
+  int gost_key;
+  char *parm_oid_hash = NULL;
 
   *r_string = NULL;
 
@@ -958,9 +960,32 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
     return gpg_error (GPG_ERR_UNKNOWN_ALGORITHM);
   if (!pk_algo_table[algoidx].supported)
     return gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM);
+  /* Check whether this is a GOST key.  */
+  gost_key = !memcmp (pk_algo_table[algoidx].oidstring, "1.2.643", 7);
 
   if (parm_off && parm_len && parm_type == TYPE_OBJECT_ID)
     parm_oid = ksba_oid_to_str (der+parm_off, parm_len);
+  else if (parm_off && parm_len &&
+           parm_type == TYPE_SEQUENCE && gost_key &&
+           (*(der + parm_off + off - 2) == TYPE_OBJECT_ID))
+    {
+      /* Extract curve and hash OIDs from a GOST key parameter.  */
+      int len_hash;
+      int len_curve;
+      const unsigned char *addr_hash;
+      const unsigned char *addr_curve;
+
+      len_curve = (int)*(der + parm_off + off - 1);
+      addr_curve = der + parm_off + off;
+      parm_oid = ksba_oid_to_str (addr_curve, len_curve);
+
+      if (*(addr_curve + len_curve) == TYPE_OBJECT_ID)
+        {
+          len_hash = (unsigned int)*(der + parm_off + off + len_curve + 1);
+          addr_hash = addr_curve + len_curve + 2;
+          parm_oid_hash = ksba_oid_to_str (addr_hash, len_hash);
+        }
+    }
   else if (parm_off && parm_len)
     {
       parmder = der + parm_off;
@@ -1002,6 +1027,13 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
       put_stringbuf_sexp (&sb, parm_oid);
       put_stringbuf (&sb, ")");
       got_curve = 1;
+      if (gost_key && parm_oid_hash)
+        {
+          put_stringbuf (&sb, "(");
+          put_stringbuf_sexp (&sb, "hash");
+          put_stringbuf_sexp (&sb, parm_oid_hash);
+          put_stringbuf (&sb, ")");
+        }
     }
   else if (pk_algo_table[algoidx].pkalgo == PKALGO_ED25519
            || pk_algo_table[algoidx].pkalgo == PKALGO_ED448
@@ -1122,6 +1154,50 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
           tmp[0] = *elem; tmp[1] = 0;
           put_stringbuf_sexp (&sb, tmp);
           put_stringbuf_mem_sexp (&sb, der, len);
+          if (gost_key)
+            {
+              /* Extract the EC public key according to TK-26.  */
+              unsigned char pk[129];
+              unsigned char *x, *y;
+              int len_pk, len_xy;
+              int i, offset;
+              unsigned char c_inv;
+
+              pk[0] = 0x04;
+              if (len == 131 || len == 66)
+                {
+                  offset = 0;
+                  if (der[0] == 0x04 && (der[1] & 0x80))
+                    offset = 3;
+                  else if (der[0] == 0x04 && (der[1] & 0x40))
+                    offset = 2;
+
+                  len_pk = len - offset;
+                  memcpy (&pk[1], der + offset, len_pk);
+                  x = &pk[1];
+                  len_xy = len_pk / 2;
+                  y = x + len_xy;
+                  for (i=0; i < len_xy/2; i++)
+                    {
+                      c_inv = x[i];
+                      x[i] = x[len_xy-i-1];
+                      x[len_xy-i-1] = c_inv;
+                    }
+                  for (i=0; i < len_xy/2; i++)
+                    {
+                      c_inv = y[i];
+                      y[i] = y[len_xy-i-1];
+                      y[len_xy-i-1] = c_inv;
+                    }
+                  put_stringbuf_mem_sexp (&sb, pk, len_pk + 1);
+                }
+              else
+                put_stringbuf_mem_sexp (&sb, der, len);
+            }
+          else
+            {
+              put_stringbuf_mem_sexp (&sb, der, len);
+            }
           der += len;
           derlen -= len;
           put_stringbuf (&sb, ")");
@@ -1129,6 +1205,7 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
     }
   put_stringbuf (&sb, "))");
   xfree (parm_oid);
+  xfree (parm_oid_hash);
 
   *r_string = get_stringbuf (&sb);
   if (!*r_string)
@@ -1633,6 +1710,7 @@ cryptval_to_sexp (int mode, const unsigned char *der, size_t derlen,
   int parm_type;
   char *pss_hash = NULL;
   unsigned int salt_length = 0;
+  int gost_sign;
 
   /* FIXME: The entire function is very similar to keyinfo_to_sexp */
   *r_string = NULL;
@@ -1660,6 +1738,7 @@ cryptval_to_sexp (int mode, const unsigned char *der, size_t derlen,
     return gpg_error (GPG_ERR_UNKNOWN_ALGORITHM);
   if (!algo_table[algoidx].supported)
     return gpg_error (GPG_ERR_UNSUPPORTED_ALGORITHM);
+  gost_sign = !memcmp (algo_table[algoidx].oidstring, "1.2.643", 7);
 
   if (parm_type == TYPE_SEQUENCE
       && algo_table[algoidx].supported == SUPPORTED_RSAPSS)
@@ -1740,13 +1819,25 @@ cryptval_to_sexp (int mode, const unsigned char *der, size_t derlen,
               TLV_LENGTH (der);
             }
           if (is_int && *elem != '-')
-            { /* take this integer */
+            { 
               char tmp[2];
 
               put_stringbuf (&sb, "(");
               tmp[0] = *elem; tmp[1] = 0;
-              put_stringbuf_sexp (&sb, tmp);
-              put_stringbuf_mem_sexp (&sb, der, len);
+              if (gost_sign && algo_table == sig_algo_table)
+                {
+                  put_stringbuf_sexp (&sb, "r");
+                  put_stringbuf_mem_sexp (&sb, der + (len/2), len/2);
+                  put_stringbuf (&sb, ")");
+                  put_stringbuf (&sb, "(");
+                  put_stringbuf_sexp (&sb, "s");
+                  put_stringbuf_mem_sexp (&sb, der, len/2);
+                }
+              else
+                {
+                  put_stringbuf_sexp (&sb, tmp);
+                  put_stringbuf_mem_sexp (&sb, der, len);
+                }
               der += len;
               derlen -= len;
               put_stringbuf (&sb, ")");
