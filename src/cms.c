@@ -71,6 +71,29 @@ is_gost_algo (const char *algo)
           && (!strcmp (algo, "gost") || !strncmp (algo, "1.2.643", 7)));
 }
 
+/* Check whether OID describes a GOST algorithm.  */
+static int
+is_gost_oid (const char *oid)
+{
+  return is_gost_algo (oid);
+}
+
+/* Helper to walk up the ASN tree.  */
+static AsnNode
+find_up (AsnNode node)
+{
+  AsnNode p;
+
+  if (!node)
+    return NULL;
+
+  p = node;
+  while (p->left && p->left->right == p)
+    p = p->left;
+  return p->left;
+}
+
+
 /* Check for the presence of a TK-26 policy in CERT.  The policy is
    considered valid if any policyIdentifier OID starts with "1.2.643".
    Return 0 on success or an error code.  */
@@ -3274,6 +3297,38 @@ build_signed_data_attributes (ksba_cms_t cms)
 	  goto leave;
 	}
 
+      int is_gost = is_gost_oid (digestlist->oid);
+
+      /* For GOST put content-type first.  */
+      if (is_gost)
+        {
+          attr = _ksba_asn_expand_tree (cms_tree->parse_tree,
+                                        "CryptographicMessageSyntax.Attribute");
+          if (!attr)
+            { err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND); goto leave; }
+          n = _ksba_asn_find_node (attr, "Attribute.attrType");
+          if (!n)
+            { err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND); goto leave; }
+          err = _ksba_der_store_oid (n, oidstr_contentType);
+          if (err)
+            goto leave;
+          n = _ksba_asn_find_node (attr, "Attribute.attrValues");
+          if (!n || !n->down)
+            { err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND); goto leave; }
+          n = n->down;
+          err = _ksba_der_store_oid (n, cms->inner_cont_oid);
+          if (err)
+            goto leave;
+          err = _ksba_der_encode_tree (attr, &image, &imagelen);
+          if (err)
+            goto leave;
+          attrarray[attridx].root = attr;
+          attrarray[attridx].image = image;
+          attrarray[attridx].imagelen = imagelen;
+          attridx++;
+        }
+
+
       /* Include the pretty important message digest. */
       attr = _ksba_asn_expand_tree (cms_tree->parse_tree,
                                     "CryptographicMessageSyntax.Attribute");
@@ -3308,40 +3363,34 @@ build_signed_data_attributes (ksba_cms_t cms)
       attrarray[attridx].imagelen = imagelen;
       attridx++;
 
-      /* Include the content-type attribute. */
-      attr = _ksba_asn_expand_tree (cms_tree->parse_tree,
-                                    "CryptographicMessageSyntax.Attribute");
-      if (!attr)
+      if (!is_gost)
         {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      n = _ksba_asn_find_node (attr, "Attribute.attrType");
-      if (!n)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      err = _ksba_der_store_oid (n, oidstr_contentType);
-      if (err)
-	goto leave;
-      n = _ksba_asn_find_node (attr, "Attribute.attrValues");
-      if (!n || !n->down)
-        {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
-      n = n->down; /* fixme: ugly hack */
-      err = _ksba_der_store_oid (n, cms->inner_cont_oid);
-      if (err)
-        goto leave;
-      err = _ksba_der_encode_tree (attr, &image, &imagelen);
-      if (err)
-        goto leave;
-      attrarray[attridx].root = attr;
-      attrarray[attridx].image = image;
-      attrarray[attridx].imagelen = imagelen;
-      attridx++;
+          /* Include the content-type attribute. */
+          attr = _ksba_asn_expand_tree (cms_tree->parse_tree,
+                                        "CryptographicMessageSyntax.Attribute");
+          if (!attr)
+            { err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND); goto leave; }
+          n = _ksba_asn_find_node (attr, "Attribute.attrType");
+          if (!n)
+            { err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND); goto leave; }
+          err = _ksba_der_store_oid (n, oidstr_contentType);
+          if (err)
+            goto leave;
+          n = _ksba_asn_find_node (attr, "Attribute.attrValues");
+          if (!n || !n->down)
+            { err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND); goto leave; }
+          n = n->down;
+          err = _ksba_der_store_oid (n, cms->inner_cont_oid);
+          if (err)
+            goto leave;
+          err = _ksba_der_encode_tree (attr, &image, &imagelen);
+          if (err)
+            goto leave;
+          attrarray[attridx].root = attr;
+          attrarray[attridx].image = image;
+          attrarray[attridx].imagelen = imagelen;
+          attridx++;
+        }
 
       /* Include the signing time */
       if (*certlist->signing_time)
@@ -3421,9 +3470,10 @@ build_signed_data_attributes (ksba_cms_t cms)
         }
 
       /* Arggh.  That silly ASN.1 DER encoding rules: We need to sort
-         the SET values. */
-      qsort (attrarray, attridx, sizeof (struct attrarray_s),
-             compare_attrarray);
+         the SET values unless building a GOST sequence.  */
+      if (!is_gost)
+        qsort (attrarray, attridx, sizeof (struct attrarray_s),
+               compare_attrarray);
 
       /* Now copy them to an SignerInfo tree.  This tree is not
          complete but suitable for ksba_cms_hash_signed_attributes() */
@@ -3440,9 +3490,16 @@ build_signed_data_attributes (ksba_cms_t cms)
         ;
       if (!n)
         {
-	  err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
-	  goto leave;
-	}
+          err = gpg_error (GPG_ERR_ELEMENT_NOT_FOUND);
+          goto leave;
+        }
+
+      if (is_gost)
+        {
+          AsnNode parent = find_up (n);
+          if (parent)
+            parent->type = TYPE_SEQUENCE;
+        }
 
       assert (attridx <= DIM (attrarray));
       for (i=0; i < attridx; i++)
