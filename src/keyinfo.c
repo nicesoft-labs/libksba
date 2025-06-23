@@ -1153,7 +1153,6 @@ _ksba_keyinfo_to_sexp (const unsigned char *der, size_t derlen,
           put_stringbuf (&sb, "(");
           tmp[0] = *elem; tmp[1] = 0;
           put_stringbuf_sexp (&sb, tmp);
-          put_stringbuf_mem_sexp (&sb, der, len);
           if (gost_key)
             {
               /* Extract the EC public key according to TK-26.  */
