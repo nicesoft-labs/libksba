@@ -160,6 +160,8 @@
 #define ksba_ocsp_set_requestor            _ksba_ocsp_set_requestor
 #define ksba_ocsp_set_sig_val              _ksba_ocsp_set_sig_val
 #define ksba_ocsp_get_extension            _ksba_ocsp_get_extension
+#define ksba_ocsp_check_signature_gost     _ksba_ocsp_check_signature_gost
+
 
 #define ksba_oid_from_str                  _ksba_oid_from_str
 #define ksba_oid_to_str                    _ksba_oid_to_str
@@ -370,6 +372,8 @@ int ksba_asn_delete_structure (void *dummy);
 #undef ksba_ocsp_set_requestor
 #undef ksba_ocsp_set_sig_val
 #undef ksba_ocsp_get_extension
+#undef ksba_ocsp_check_signature_gost
+
 
 #undef ksba_oid_from_str
 #undef ksba_oid_to_str
@@ -549,6 +553,8 @@ MARK_VISIBLE (ksba_ocsp_set_nonce)
 MARK_VISIBLE (ksba_ocsp_set_requestor)
 MARK_VISIBLE (ksba_ocsp_set_sig_val)
 MARK_VISIBLE (ksba_ocsp_get_extension)
+MARK_VISIBLE (ksba_ocsp_check_signature_gost)
+
 
 MARK_VISIBLE (ksba_oid_from_str)
 MARK_VISIBLE (ksba_oid_to_str)
