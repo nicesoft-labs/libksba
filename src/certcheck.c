@@ -146,6 +146,125 @@ check_policy_tk26_only (ksba_cert_t cert)
   return any? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
 }
 
+/* Parse the value of a certificatePolicies extension and check that
+   only TK-26 policies (OID prefix 1.2.643) are used and that at least
+   one such policy exists.  */
+static gpg_error_t
+parse_policies_tk26_only (const unsigned char *der, size_t derlen)
+{
+  gpg_error_t err;
+  struct tag_info ti;
+  size_t seqlen;
+  int any = 0;
+
+  err = _ksba_ber_parse_tl (&der, &derlen, &ti);
+  if (err)
+    return err;
+  if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_SEQUENCE && ti.is_constructed))
+    return gpg_error (GPG_ERR_INV_OBJ);
+  if (ti.ndef)
+    return gpg_error (GPG_ERR_NOT_DER_ENCODED);
+  if (ti.length > derlen)
+    return gpg_error (GPG_ERR_BAD_BER);
+  seqlen = ti.length;
+
+  while (seqlen)
+    {
+      size_t innerlen;
+
+      err = _ksba_ber_parse_tl (&der, &derlen, &ti);
+      if (err)
+        return err;
+      if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_SEQUENCE && ti.is_constructed))
+        return gpg_error (GPG_ERR_INV_OBJ);
+      if (ti.ndef)
+        return gpg_error (GPG_ERR_NOT_DER_ENCODED);
+      if (ti.length > derlen || ti.nhdr + ti.length > seqlen)
+        return gpg_error (GPG_ERR_BAD_BER);
+      seqlen -= ti.nhdr + ti.length;
+      innerlen = ti.length;
+
+      err = _ksba_ber_parse_tl (&der, &derlen, &ti);
+      if (err)
+        return err;
+      if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_OBJECT_ID))
+        return gpg_error (GPG_ERR_INV_OBJ);
+      if (ti.length > derlen || ti.nhdr + ti.length > innerlen)
+        return gpg_error (GPG_ERR_BAD_BER);
+      {
+        char *oid = ksba_oid_to_str (der, ti.length);
+        if (!oid)
+          return gpg_error (GPG_ERR_ENOMEM);
+        if (!strncmp (oid, "1.2.643", 7))
+          any = 1;
+        else
+          {
+            xfree (oid);
+            return gpg_error (GPG_ERR_NO_POLICY_MATCH);
+          }
+        xfree (oid);
+      }
+      der += ti.length;
+      derlen -= ti.length;
+      if (innerlen < ti.nhdr + ti.length)
+        return gpg_error (GPG_ERR_BAD_BER);
+      der += innerlen - (ti.nhdr + ti.length);
+      derlen -= innerlen - (ti.nhdr + ti.length);
+    }
+
+  return any? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
+}
+
+/* Parse the value of an extendedKeyUsage extension and make sure that
+   at least one of the supported OIDs for GOST keys is present.  */
+static gpg_error_t
+parse_eku_for_gost (const unsigned char *der, size_t derlen)
+{
+  gpg_error_t err;
+  struct tag_info ti;
+  size_t seqlen;
+  int ok = 0;
+
+  err = _ksba_ber_parse_tl (&der, &derlen, &ti);
+  if (err)
+    return err;
+  if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_SEQUENCE && ti.is_constructed))
+    return gpg_error (GPG_ERR_INV_OBJ);
+  if (ti.ndef)
+    return gpg_error (GPG_ERR_NOT_DER_ENCODED);
+  if (ti.length > derlen)
+    return gpg_error (GPG_ERR_BAD_BER);
+  seqlen = ti.length;
+
+  while (seqlen)
+    {
+      err = _ksba_ber_parse_tl (&der, &derlen, &ti);
+      if (err)
+        return err;
+      if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_OBJECT_ID))
+        return gpg_error (GPG_ERR_INV_OBJ);
+      if (ti.ndef)
+        return gpg_error (GPG_ERR_NOT_DER_ENCODED);
+      if (ti.length > derlen || ti.nhdr + ti.length > seqlen)
+        return gpg_error (GPG_ERR_BAD_BER);
+      {
+        char *oid = ksba_oid_to_str (der, ti.length);
+        if (!oid)
+          return gpg_error (GPG_ERR_ENOMEM);
+        if (!strcmp (oid, "1.3.6.1.5.5.7.3.3")
+            || !strcmp (oid, "1.3.6.1.5.5.7.3.9")
+            || !strcmp (oid, "2.5.29.31"))
+          ok = 1;
+        xfree (oid);
+      }
+      der += ti.length;
+      derlen -= ti.length;
+      seqlen -= ti.nhdr + ti.length;
+    }
+
+  return ok? 0 : gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+}
+
 
 struct hash_collect_state
 {
@@ -602,6 +721,151 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
       return gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO);
     }
   xfree (oid);
+  oid = NULL;
 
+  /* Extensions are stored as attributes.  Parse them for TK-26 policy
+     and Extended Key Usage checks.  */
+  err = parse_context_tag (&cri, &cri_len, &ti, 0);
+  if (gpg_err_code (err) == GPG_ERR_FALSE || gpg_err_code (err) == GPG_ERR_INV_OBJ)
+    return gpg_error (GPG_ERR_NO_POLICY_MATCH);
+  if (err)
+    return err;
+  if (ti.length > cri_len)
+    return gpg_error (GPG_ERR_BAD_BER);
+
+  const unsigned char *attrs = cri;
+  size_t attrs_len = ti.length;
+  int have_policy = 0;
+  int have_eku = 0;
+
+  while (attrs_len)
+    {
+      const unsigned char *attr_ptr;
+      size_t attr_len;
+
+      err = parse_sequence (&attrs, &attrs_len, &ti);
+      if (err)
+        return err;
+      if (ti.length > attrs_len)
+        return gpg_error (GPG_ERR_BAD_BER);
+      attr_ptr = attrs;
+      attr_len = ti.length;
+      attrs += attr_len;
+      attrs_len -= attr_len;
+
+      err = parse_object_id_into_str (&attr_ptr, &attr_len, &oid);
+      if (err)
+        return err;
+
+      err = _ksba_ber_parse_tl (&attr_ptr, &attr_len, &ti);
+      if (err)
+        {
+          xfree (oid);
+          return err;
+        }
+      if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_SET && ti.is_constructed))
+        {
+          xfree (oid);
+          return gpg_error (GPG_ERR_INV_OBJ);
+        }
+      if (ti.ndef || ti.length > attr_len)
+        {
+          xfree (oid);
+          return gpg_error (GPG_ERR_BAD_BER);
+        }
+      const unsigned char *set_ptr = attr_ptr;
+      size_t set_len = ti.length;
+
+      if (!strcmp (oid, "1.2.840.113549.1.9.14"))
+        {
+          /* extensionRequest */
+          const unsigned char *ext_ptr = set_ptr;
+          size_t ext_len = set_len;
+
+          err = parse_sequence (&ext_ptr, &ext_len, &ti);
+          if (err)
+            {
+              xfree (oid);
+              return err;
+            }
+          if (ti.length > ext_len)
+            {
+              xfree (oid);
+              return gpg_error (GPG_ERR_BAD_BER);
+            }
+          const unsigned char *extensions = ext_ptr;
+          size_t extensions_len = ti.length;
+
+          while (extensions_len)
+            {
+              const unsigned char *e_ptr;
+              size_t e_len;
+
+              err = parse_sequence (&extensions, &extensions_len, &ti);
+              if (err)
+                {
+                  xfree (oid);
+                  return err;
+                }
+              if (ti.length > extensions_len)
+                {
+                  xfree (oid);
+                  return gpg_error (GPG_ERR_BAD_BER);
+                }
+              e_ptr = extensions;
+              e_len = ti.length;
+              extensions += e_len;
+              extensions_len -= e_len;
+
+              err = parse_object_id_into_str (&e_ptr, &e_len, &oid);
+              if (err)
+                return err;
+              int crit = 0;
+              err = parse_optional_boolean (&e_ptr, &e_len, &crit);
+              if (err)
+                {
+                  xfree (oid);
+                  return err;
+                }
+              err = parse_octet_string (&e_ptr, &e_len, &ti);
+              if (err)
+                {
+                  xfree (oid);
+                  return err;
+                }
+              if (ti.length > e_len)
+                {
+                  xfree (oid);
+                  return gpg_error (GPG_ERR_BAD_BER);
+                }
+              if (!strcmp (oid, "2.5.29.32"))
+                {
+                  have_policy = 1;
+                  err = parse_policies_tk26_only (e_ptr, ti.length);
+                  xfree (oid);
+                  if (err)
+                    return err;
+                }
+              else if (!strcmp (oid, "2.5.29.37"))
+                {
+                  have_eku = 1;
+                  err = parse_eku_for_gost (e_ptr, ti.length);
+                  xfree (oid);
+                  if (err)
+                    return err;
+                }
+              else
+                xfree (oid);
+            }
+        }
+      else
+        xfree (oid);
+    }
+
+  if (!have_policy)
+    return gpg_error (GPG_ERR_NO_POLICY_MATCH);
+  if (!have_eku)
+    return gpg_error (GPG_ERR_WRONG_KEY_USAGE); 
+  
   return 0;
 }
