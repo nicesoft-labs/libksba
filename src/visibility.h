@@ -334,6 +334,7 @@ int ksba_asn_delete_structure (void *dummy);
 #undef ksba_crl_get_issuer
 #undef ksba_crl_get_item
 #undef ksba_crl_get_sig_val
+#undef ksba_crl_check_signature_gost
 #undef ksba_crl_get_update_times
 #undef ksba_crl_new
 #undef ksba_crl_parse
@@ -512,6 +513,7 @@ MARK_VISIBLE (ksba_crl_get_digest_algo)
 MARK_VISIBLE (ksba_crl_get_issuer)
 MARK_VISIBLE (ksba_crl_get_item)
 MARK_VISIBLE (ksba_crl_get_sig_val)
+MARK_VISIBLE (ksba_crl_check_signature_gost)
 MARK_VISIBLE (ksba_crl_get_update_times)
 MARK_VISIBLE (ksba_crl_new)
 MARK_VISIBLE (ksba_crl_parse)
