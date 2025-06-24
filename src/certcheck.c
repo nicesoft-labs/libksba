@@ -72,6 +72,70 @@ check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
   return _ksba_check_key_usage_for_gost (cert, usage_flag);
 }
 
+/* Check for the presence of a TK-26 policy in CERT.  */
+static gpg_error_t
+check_policy_tk26 (ksba_cert_t cert)
+{
+  gpg_error_t err;
+  char *pols = NULL;
+  int ok = 0;
+
+  err = ksba_cert_get_cert_policies (cert, &pols);
+  if (gpg_err_code (err) == GPG_ERR_NO_DATA)
+    return 0;
+  if (err)
+    return err;
+
+  for (char *line = pols; line && *line; )
+    {
+      char *end = strchr (line, '\n');
+      if (!end)
+        end = line + strlen (line);
+      if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
+        {
+          ok = 1;
+          break;
+        }
+      if (*end)
+        line = end + 1;
+      else
+        break;
+    }
+  xfree (pols);
+
+  return ok? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
+}
+
+struct hash_collect_state
+{
+  unsigned char *buffer;
+  size_t length;
+  size_t allocated;
+};
+
+static void
+collect_hash_bytes (void *opaque, const void *buf, size_t buflen)
+{
+  struct hash_collect_state *st = opaque;
+
+  if (st->length + buflen > st->allocated)
+    {
+      size_t n = st->allocated? st->allocated*2:8192;
+      while (n < st->length + buflen)
+        n *= 2;
+      st->buffer = xtryrealloc (st->buffer, n);
+      if (!st->buffer)
+        {
+          st->length = st->allocated = 0;
+          return;
+        }
+      st->allocated = n;
+    }
+  memcpy (st->buffer + st->length, buf, buflen);
+  st->length += buflen;
+}
+
+
 /* Verify CERT using ISSUER_CERT.  */
 gpg_error_t
 _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
@@ -203,6 +267,126 @@ _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
     }
 
   gcry_md_close (md);
+  gcry_sexp_release (s_sig);
+  gcry_sexp_release (s_hash);
+  gcry_sexp_release (s_pkey);
+  return err;
+}
+
+/* Verify CRL CRL using ISSUER_CERT for GOST signatures.  */
+gpg_error_t
+_ksba_crl_check_signature_gost (ksba_crl_t crl, ksba_cert_t issuer_cert)
+{
+  gpg_error_t err = 0;
+  struct hash_collect_state hstate = { NULL, 0, 0 };
+  ksba_stop_reason_t stop = 0;
+  const char *algoid;
+  int algo, i;
+  gcry_md_hd_t md;
+  ksba_sexp_t p;
+  size_t n;
+  gcry_sexp_t s_sig = NULL, s_hash = NULL, s_pkey = NULL;
+  const char *s;
+  char algo_name[17];
+  int digestlen;
+  unsigned char *digest;
+
+  if (!crl || !issuer_cert)
+    return gpg_error (GPG_ERR_INV_VALUE);
+
+  ksba_crl_set_hash_function (crl, collect_hash_bytes, &hstate);
+  do
+    {
+      err = ksba_crl_parse (crl, &stop);
+    }
+  while (!err && stop != KSBA_SR_READY);
+  ksba_crl_set_hash_function (crl, NULL, NULL);
+  if (err)
+    goto leave;
+
+  algoid = ksba_crl_get_digest_algo (crl);
+  if (!algoid || strncmp (algoid, "1.2.643", 7))
+    { err = gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO); goto leave; }
+
+  err = _ksba_check_key_usage_for_gost (issuer_cert, KSBA_KEYUSAGE_CRL_SIGN);
+  if (!err)
+    err = check_policy_tk26 (issuer_cert);
+  if (err)
+    goto leave;
+
+  algo = gcry_md_map_name (algoid);
+  if (!algo)
+    { err = gpg_error (GPG_ERR_DIGEST_ALGO); goto leave; }
+
+  err = gcry_md_open (&md, algo, 0);
+  if (err)
+    goto leave;
+  gcry_md_write (md, hstate.buffer, hstate.length);
+  gcry_md_final (md);
+
+  digestlen = gcry_md_get_algo_dlen (algo);
+  digest = gcry_md_read (md, algo);
+
+  {
+    unsigned char *h = digest;
+    unsigned char c;
+    int len_xy;
+    unsigned short arch = 1;
+    len_xy = *((unsigned char *)&arch) == 0 ? 0 : digestlen;
+    for (i = 0; i < (len_xy/2); i++)
+      {
+        c = h[i];
+        h[i] = h[len_xy - i - 1];
+        h[len_xy - i - 1] = c;
+      }
+  }
+
+  s = gcry_md_algo_name (algo);
+  for (i = 0; *s && i < (int)sizeof algo_name - 1; s++, i++)
+    algo_name[i] = tolower (*s);
+  algo_name[i] = 0;
+
+  err = gcry_sexp_build (&s_hash, NULL,
+                         "(data(flags gost)(value %b))",
+                         (int)digestlen, digest);
+  if (err)
+    { gcry_md_close (md); goto leave; }
+
+  p = ksba_crl_get_sig_val (crl);
+  n = gcry_sexp_canon_len (p, 0, NULL, NULL);
+  if (!n)
+    { err = gpg_error (GPG_ERR_INV_SEXP); gcry_md_close (md); ksba_free (p); goto leave; }
+  err = gcry_sexp_sscan (&s_sig, NULL, p, n);
+  ksba_free (p);
+  if (err)
+    { gcry_md_close (md); goto leave; }
+
+  p = ksba_cert_get_public_key (issuer_cert);
+  n = gcry_sexp_canon_len (p, 0, NULL, NULL);
+  if (!n)
+    { err = gpg_error (GPG_ERR_INV_SEXP); gcry_md_close (md); ksba_free (p); goto leave; }
+  err = gcry_sexp_sscan (&s_pkey, NULL, p, n);
+  ksba_free (p);
+  if (err)
+    { gcry_md_close (md); goto leave; }
+
+  err = gcry_pk_verify (s_sig, s_hash, s_pkey);
+  if (err)
+    {
+      gcry_sexp_t tmp = s_sig;
+      if (!gost_adjust_signature (&tmp))
+        {
+          s_sig = tmp;
+          err = gcry_pk_verify (s_sig, s_hash, s_pkey);
+        }
+      else
+        gcry_sexp_release (tmp);
+    }
+
+  gcry_md_close (md);
+
+leave:
+  xfree (hstate.buffer);
   gcry_sexp_release (s_sig);
   gcry_sexp_release (s_hash);
   gcry_sexp_release (s_pkey);
