@@ -832,6 +832,13 @@ ksba_ocsp_get_extension (ksba_ocsp_t ocsp, ksba_cert_t cert,
                                    r_der, r_derlen);
 }
 
+gpg_error_t
+ksba_ocsp_check_signature_gost (ksba_ocsp_t ocsp,
+                                const unsigned char *msg, size_t msglen,
+                                ksba_cert_t cert)
+{
+  return _ksba_ocsp_check_signature_gost (ocsp, msg, msglen, cert);
+}
 
 
 
