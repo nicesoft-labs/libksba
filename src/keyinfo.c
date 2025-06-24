@@ -39,6 +39,7 @@
 #include <assert.h>
 
 #include "util.h"
+#include <gpg-error.h>
 #include "asn1-func.h"
 #include "keyinfo.h"
 #include "shared.h"
@@ -2009,7 +2010,10 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
 {
   gpg_error_t err;
   unsigned int usage = 0;
-
+  char *ext_usages = NULL;
+  const char *eku = NULL;
+  int eku_ok = 0;
+   
   err = ksba_cert_get_key_usage (cert, &usage);
   if (gpg_err_code (err) == GPG_ERR_NO_DATA)
     return 0;
@@ -2022,6 +2026,8 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
       if (!(usage & (KSBA_KEYUSAGE_DIGITAL_SIGNATURE |
                      KSBA_KEYUSAGE_NON_REPUDIATION)))
         return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+        eku = "1.3.6.1.5.5.7.3.3";
+
     }
   else if (usage_flag == KSBA_KEYUSAGE_KEY_ENCIPHERMENT
            || usage_flag == KSBA_KEYUSAGE_DATA_ENCIPHERMENT)
@@ -2030,6 +2036,51 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
                      KSBA_KEYUSAGE_DATA_ENCIPHERMENT)))
         return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
     }
+  else if (usage_flag == KSBA_KEYUSAGE_CRL_SIGN)
+    {
+      if (!(usage & KSBA_KEYUSAGE_CRL_SIGN))
+        return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+      eku = "2.5.29.31";
+    }
+  if (eku)
+    {
+      err = ksba_cert_get_ext_key_usages (cert, &ext_usages);
+      if (gpg_err_code (err) == GPG_ERR_NO_DATA)
+        {
+          gpgrt_log_error ("missing Extended Key Usage in certificate\n");
+          err = gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+          goto leave;
+        }
+      if (err)
+        goto leave;
 
-  return 0;
+      for (char *line = ext_usages; line && *line; )
+        {
+          char *end = strchr (line, '\n');
+          if (!end)
+            end = line + strlen (line);
+          if ((size_t)(end - line) == strlen (eku)
+              && !memcmp (line, eku, strlen (eku)))
+            {
+              eku_ok = 1;
+              break;
+            }
+          if (*end)
+            line = end + 1;
+          else
+            break;
+        }
+      if (!eku_ok)
+        {
+          gpgrt_log_error ("extended key usage %s not found\n", eku);
+          err = gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+          goto leave;
+        }
+    }
+
+  err = 0;
+
+ leave:
+  xfree (ext_usages);
+  return err;
 }
