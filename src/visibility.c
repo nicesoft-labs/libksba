@@ -653,6 +653,11 @@ ksba_crl_get_sig_val (ksba_crl_t crl)
   return _ksba_crl_get_sig_val (crl);
 }
 
+gpg_error_t
+ksba_crl_check_signature_gost (ksba_crl_t crl, ksba_cert_t issuer_cert)
+{
+  return _ksba_crl_check_signature_gost (crl, issuer_cert);
+}
 
 gpg_error_t
 ksba_crl_parse (ksba_crl_t crl, ksba_stop_reason_t *r_stopreason)
