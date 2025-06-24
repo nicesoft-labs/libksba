@@ -107,16 +107,9 @@ check_policy_tk26 (ksba_cert_t cert)
           line = end + 1;
         else
           break;
-        }
-      if (*end)
-        line = end + 1;
-      else
-        break;
-    }
-   }
   }
   xfree (pols);
-
+  }
   return ok? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
 }
 
