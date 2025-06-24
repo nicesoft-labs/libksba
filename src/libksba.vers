@@ -118,6 +118,8 @@ KSBA_0.9 {
     ksba_crl_check_signature_gost;
     ksba_ocsp_check_signature_gost;
     ksba_pkcs10_check_gost;
+    ksba_pkcs10_build_gost;
+
 
 
   local:
