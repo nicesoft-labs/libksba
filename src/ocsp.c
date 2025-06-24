@@ -1884,6 +1884,7 @@ ksba_ocsp_check_signature_gost (ksba_ocsp_t ocsp,
   if (!err)
     err = check_ocsp_signing_eku (cert);
   if (!err)
+    /* TK-26: The responder certificate must carry an appropriate policy.  */
     err = check_policy_tk26 (cert);
   if (err)
     return err;
