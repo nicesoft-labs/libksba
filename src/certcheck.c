@@ -8,6 +8,8 @@
 #include "keyinfo.h"
 #include "cert.h"
 #include "ksba.h"
+#include <assert.h>
+#include "ber-help.h"
 
 #define HASH_FNC ((void (*)(void *, const void *, size_t))gcry_md_write)
 
@@ -516,6 +518,90 @@ _ksba_check_cert_chain_tk26 (const ksba_cert_t *chain, size_t chainlen,
       if (err)
         return err;
     }
+
+  return 0;
+}
+
+/* Minimal parser to validate GOST PKCS#10 requests.  */
+gpg_error_t
+_ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
+{
+  gpg_error_t err;
+  struct tag_info ti;
+  const unsigned char *ptr = der;
+  size_t len = derlen;
+  char *oid = NULL;
+  const unsigned char *cri;
+  size_t cri_len;
+  const unsigned char *spki;
+  size_t spki_len;
+
+  if (!der || !derlen)
+    return gpg_error (GPG_ERR_INV_VALUE);
+
+  err = parse_sequence (&ptr, &len, &ti);
+  if (err)
+    return err;
+  if (ti.ndef || ti.length > len)
+    return gpg_error (GPG_ERR_BAD_BER);
+  len = ti.length;
+
+  err = parse_sequence (&ptr, &len, &ti); /* CertificationRequestInfo */
+  if (err)
+    return err;
+  if (ti.ndef || ti.length > len)
+    return gpg_error (GPG_ERR_BAD_BER);
+  cri = ptr;
+  cri_len = ti.length;
+  ptr += cri_len;
+  len -= cri_len;
+
+  /* version */
+  err = parse_integer (&cri, &cri_len, &ti);
+  if (err)
+    return err;
+  parse_skip (&cri, &cri_len, &ti);
+
+  /* subject */
+  err = parse_sequence (&cri, &cri_len, &ti);
+  if (err)
+    return err;
+  if (ti.length > cri_len)
+    return gpg_error (GPG_ERR_BAD_BER);
+  parse_skip (&cri, &cri_len, &ti);
+
+  /* subjectPublicKeyInfo */
+  err = parse_sequence (&cri, &cri_len, &ti);
+  if (err)
+    return err;
+  if (ti.length > cri_len)
+    return gpg_error (GPG_ERR_BAD_BER);
+  spki = cri;
+  spki_len = ti.length;
+  cri += spki_len;
+  cri_len -= spki_len;
+
+  err = _ksba_parse_algorithm_identifier (spki, spki_len, NULL, &oid);
+  if (err)
+    return err;
+  if (strncmp (oid, "1.2.643", 7))
+    {
+      xfree (oid);
+      return gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO);
+    }
+  xfree (oid);
+  oid = NULL;
+
+  /* signatureAlgorithm */
+  err = _ksba_parse_algorithm_identifier (ptr, len, NULL, &oid);
+  if (err)
+    return err;
+  if (strncmp (oid, "1.2.643", 7))
+    {
+      xfree (oid);
+      return gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO);
+    }
+  xfree (oid);
 
   return 0;
 }
