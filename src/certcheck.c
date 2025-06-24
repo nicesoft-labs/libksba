@@ -17,7 +17,9 @@
 static void
 invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
 {
-  for (size_t i = 0; i < len; i++)
+  size_t i;
+
+  for (i = 0; i < len; i++)
     dst[i] = src[len - 1 - i];
 }
 
@@ -44,7 +46,7 @@ gost_adjust_signature (gcry_sexp_t *sig)
 
   rbuf = gcry_sexp_nth_buffer (r, 1, &rlen);
   sbuf = gcry_sexp_nth_buffer (s, 1, &slen);
-  if (!rbuf || !sbuf || rlen != slen)
+  if (!rbuf || !sbuf || !rlen || rlen != slen)
     {
       err = gpg_error (GPG_ERR_INV_SEXP);
       goto leave;
@@ -89,14 +91,21 @@ check_policy_tk26 (ksba_cert_t cert)
   if (err)
     return err;
 
-  for (char *line = pols; line && *line; )
-    {
-      char *end = strchr (line, '\n');
-      if (!end)
-        end = line + strlen (line);
-      if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
-        {
-          ok = 1;
+  {
+    char *line = pols;
+    while (line && *line)
+      {
+        char *end = strchr (line, '\n');
+        if (!end)
+          end = line + strlen (line);
+        if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
+          {
+            ok = 1;
+            break;
+          }
+        if (*end)
+          line = end + 1;
+        else
           break;
         }
       if (*end)
@@ -104,6 +113,8 @@ check_policy_tk26 (ksba_cert_t cert)
       else
         break;
     }
+   }
+  }
   xfree (pols);
 
   return ok? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
@@ -124,27 +135,30 @@ check_policy_tk26_only (ksba_cert_t cert)
   if (err)
     return err;
 
-  for (char *line = pols; line && *line; )
-    {
-      char *end = strchr (line, '\n');
-      if (!end)
-        end = line + strlen (line);
-      if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
-        any = 1;
-      else if (end - line == 13 && !memcmp (line, "2.5.29.32.0", 11))
-        {
-          /* Ignore anyPolicy.  */
-        }
-      else
-        {
-          xfree (pols);
-          return gpg_error (GPG_ERR_NO_POLICY_MATCH);
-        }
-      if (*end)
-        line = end + 1;
-      else
-        break;
-    }
+  {
+    char *line = pols;
+    while (line && *line)
+      {
+        char *end = strchr (line, '\n');
+        if (!end)
+          end = line + strlen (line);
+        if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
+          any = 1;
+        else if (end - line == 13 && !memcmp (line, "2.5.29.32.0", 11))
+          {
+            /* Ignore anyPolicy.  */
+          }
+        else
+          {
+            xfree (pols);
+            return gpg_error (GPG_ERR_NO_POLICY_MATCH);
+          }
+        if (*end)
+          line = end + 1;
+        else
+          break;
+      }
+  }
   xfree (pols);
 
   return any? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
@@ -533,13 +547,19 @@ _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
   if (err && gost_key)
     {
       gcry_sexp_t tmp = s_sig;
-      if (!gost_adjust_signature (&tmp))
+      gpg_error_t e2;
+
+      e2 = gost_adjust_signature (&tmp);
+      if (!e2)
         {
           s_sig = tmp;
           err = gcry_pk_verify (s_sig, s_hash, s_pkey);
         }
       else
-        gcry_sexp_release (tmp);
+        {
+          gcry_sexp_release (tmp);
+          err = e2;
+        }
     }
 
   gcry_md_close (md);
@@ -651,13 +671,19 @@ _ksba_crl_check_signature_gost (ksba_crl_t crl, ksba_cert_t issuer_cert)
   if (err)
     {
       gcry_sexp_t tmp = s_sig;
-      if (!gost_adjust_signature (&tmp))
-        {
+      gpg_error_t e2;
+
+      e2 = gost_adjust_signature (&tmp);
+      if (!e2)
+      {
           s_sig = tmp;
           err = gcry_pk_verify (s_sig, s_hash, s_pkey);
         }
       else
-        gcry_sexp_release (tmp);
+        {
+          gcry_sexp_release (tmp);
+          err = e2;
+        }
     }
 
   gcry_md_close (md);
@@ -688,7 +714,9 @@ _ksba_check_cert_chain_tk26 (const ksba_cert_t *chain, size_t chainlen,
 
   _ksba_current_time (now);
 
-  for (size_t i = 0; i < chainlen; i++)
+  {
+    size_t i;
+    for (i = 0; i < chainlen; i++)
     {
       ksba_cert_t cert = chain[i];
 
@@ -727,14 +755,17 @@ _ksba_check_cert_chain_tk26 (const ksba_cert_t *chain, size_t chainlen,
       if (err)
         return err;
     }
-
+  }
   /* Verify the signature chain.  */
-  for (size_t i = 1; i < chainlen; i++)
-    {
-      err = _ksba_check_cert_sig (chain[i-1], chain[i]);
-      if (err)
-        return err;
-    }
+  {
+    size_t i;
+    for (i = 1; i < chainlen; i++)
+      {
+        err = _ksba_check_cert_sig (chain[i-1], chain[i]);
+        if (err)
+          return err;
+      }
+  }
 
   return 0;
 }
@@ -1076,13 +1107,19 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   if (err && gost_key)
     {
       gcry_sexp_t tmp = s_sig;
-      if (!gost_adjust_signature (&tmp))
+      gpg_error_t e2;
+
+      e2 = gost_adjust_signature (&tmp);
+      if (!e2)
         {
           s_sig = tmp;
           err = gcry_pk_verify (s_sig, s_hash, s_pkey);
         }
       else
-        gcry_sexp_release (tmp);
+        {
+          gcry_sexp_release (tmp);
+          err = e2;
+        }
     }
 
   gcry_md_close (md);
