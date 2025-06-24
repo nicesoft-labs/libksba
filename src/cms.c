@@ -1915,6 +1915,8 @@ ksba_cms_check_signed_attrs_gost (ksba_cms_t cms, int idx,
 {
   gpg_error_t err;
   AsnNode nsiginfo, n;
+  AsnNode seq_ct = NULL;
+  AsnNode seq_md = NULL;
   struct signer_info_s *si;
   unsigned char *oidbuf = NULL;
   size_t oidlen;
