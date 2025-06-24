@@ -496,6 +496,9 @@ gpg_error_t ksba_ocsp_check_signature_gost (ksba_ocsp_t ocsp,
                                             const unsigned char *msg,
                                             size_t msglen,
                                             ksba_cert_t cert);
+gpg_error_t ksba_pkcs10_check_gost (const unsigned char *der,
+                                    size_t derlen);                                     
+
 /*-- certreq.c --*/
 gpg_error_t ksba_certreq_new (ksba_certreq_t *r_cr);
 void        ksba_certreq_release (ksba_certreq_t cr);
