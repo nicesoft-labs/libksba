@@ -115,6 +115,7 @@ KSBA_0.9 {
     ksba_der_builder_get;
     ksba_check_cert_sig;
     ksba_crl_check_signature_gost;
+    ksba_ocsp_check_signature_gost;
 
   local:
     *;
