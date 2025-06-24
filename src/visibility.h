@@ -209,6 +209,8 @@
 #define ksba_der_add_end                   _ksba_der_add_end
 #define ksba_der_builder_get               _ksba_der_builder_get
 #define ksba_check_cert_sig                _ksba_check_cert_sig
+#define ksba_check_cert_chain_tk26         _ksba_check_cert_chain_tk26
+
 
 
 /* Include the main header file to map the public symbols to the
@@ -421,7 +423,7 @@ int ksba_asn_delete_structure (void *dummy);
 #undef ksba_der_add_end
 #undef ksba_der_builder_get
 #undef ksba_check_cert_sig
-
+#undef ksba_check_cert_chain_tk26
 
 
 /* Mark all symbols.  */
@@ -602,6 +604,7 @@ MARK_VISIBLE (ksba_der_add_tag)
 MARK_VISIBLE (ksba_der_add_end)
 MARK_VISIBLE (ksba_der_builder_get)
 MARK_VISIBLE (ksba_check_cert_sig)
+MARK_VISIBLE (ksba_check_cert_chain_tk26)
 
 
 #  undef MARK_VISIBLE
