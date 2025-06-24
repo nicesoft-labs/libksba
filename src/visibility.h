@@ -124,6 +124,7 @@
 #define ksba_crl_get_issuer                _ksba_crl_get_issuer
 #define ksba_crl_get_item                  _ksba_crl_get_item
 #define ksba_crl_get_sig_val               _ksba_crl_get_sig_val
+#define ksba_crl_check_signature_gost      _ksba_crl_check_signature_gost
 #define ksba_crl_get_update_times          _ksba_crl_get_update_times
 #define ksba_crl_new                       _ksba_crl_new
 #define ksba_crl_parse                     _ksba_crl_parse
