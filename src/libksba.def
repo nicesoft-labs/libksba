@@ -209,3 +209,4 @@ EXPORTS
       ksba_der_builder_get            @163
       ksba_check_cert_sig             @164
       ksba_cms_check_signed_attrs_gost @165
+      ksba_crl_check_signature_gost    @166
