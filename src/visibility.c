@@ -840,7 +840,11 @@ ksba_ocsp_check_signature_gost (ksba_ocsp_t ocsp,
   return _ksba_ocsp_check_signature_gost (ocsp, msg, msglen, cert);
 }
 
-
+gpg_error_t
+ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
+{
+  return _ksba_pkcs10_check_gost (der, derlen);
+}
 
 /*-- certreq.c --*/
 gpg_error_t
