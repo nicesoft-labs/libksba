@@ -208,6 +208,7 @@ EXPORTS
       ksba_der_add_end                @162
       ksba_der_builder_get            @163
       ksba_check_cert_sig             @164
-      ksba_cms_check_signed_attrs_gost @165
-      ksba_crl_check_signature_gost    @166
-      ksba_ocsp_check_signature_gost   @167
+      ksba_check_cert_chain_tk26      @165
+      ksba_cms_check_signed_attrs_gost @166
+      ksba_crl_check_signature_gost    @167
+      ksba_ocsp_check_signature_gost   @168
