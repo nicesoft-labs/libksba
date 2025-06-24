@@ -166,6 +166,24 @@ _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
                                       KSBA_KEYUSAGE_DIGITAL_SIGNATURE);
       if (err)
         return err;
+
+      /* TK-26: validate issuer certificate when a GOST signature is
+         used for certificate signing.  */
+      {
+        unsigned int ku = 0;
+        gpg_error_t e2 = ksba_cert_get_key_usage (issuer_cert, &ku);
+        if (gpg_err_code (e2) != GPG_ERR_NO_DATA)
+          {
+            if (e2)
+              return e2;
+            if (!(ku & KSBA_KEYUSAGE_KEY_CERT_SIGN))
+              return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+          }
+
+        e2 = check_policy_tk26 (issuer_cert);
+        if (e2)
+          return e2;
+      }
     }
 
   s = gcry_md_algo_name (algo);
@@ -310,6 +328,7 @@ _ksba_crl_check_signature_gost (ksba_crl_t crl, ksba_cert_t issuer_cert)
 
   err = _ksba_check_key_usage_for_gost (issuer_cert, KSBA_KEYUSAGE_CRL_SIGN);
   if (!err)
+    /* TK-26: ensure CRL issuer keys follow the profile policy.  */
     err = check_policy_tk26 (issuer_cert);
   if (err)
     goto leave;
