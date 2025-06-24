@@ -1335,3 +1335,10 @@ ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
 {
   return _ksba_check_cert_sig (issuer_cert, cert);
 }
+
+gpg_error_t
+ksba_check_cert_chain_tk26 (const ksba_cert_t *chain, size_t chainlen,
+                            int check_enc)
+{
+  return _ksba_check_cert_chain_tk26 (chain, chainlen, check_enc);
+}
