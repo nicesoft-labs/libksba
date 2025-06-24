@@ -1,0 +1,8 @@
+[ req ]
+distinguished_name = req_distinguished_name
+prompt = no
+[ req_distinguished_name ]
+CN = test_gost_policy
+[ v3_req ]
+keyUsage = digitalSignature
+certificatePolicies = 1.2.643.100.111.1
