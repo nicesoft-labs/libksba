@@ -85,6 +85,7 @@ build_with_ext (const char *subj, gcry_sexp_t pub, gcry_sexp_t sec,
   ksba_writer_t wrt = NULL;
   gcry_md_hd_t md = NULL;
   gcry_sexp_t s_skey = NULL, s_sig = NULL, s_hash = NULL;
+  unsigned char *pub_canon = NULL, *sec_canon = NULL;
   ksba_stop_reason_t sr;
   unsigned char *buf = NULL;
   size_t buflen;
@@ -98,7 +99,12 @@ build_with_ext (const char *subj, gcry_sexp_t pub, gcry_sexp_t sec,
   err = ksba_certreq_new (&cr); if (err) goto leave;
   err = ksba_certreq_set_writer (cr, wrt); if (err) goto leave;
   err = ksba_certreq_add_subject (cr, subj); if (err) goto leave;
-  err = ksba_certreq_set_public_key (cr, pub); if (err) goto leave;
+  {
+    size_t n = gcry_sexp_sprint (pub, GCRYSEXP_FMT_CANON, NULL, 0);
+    pub_canon = xmalloc (n);
+    gcry_sexp_sprint (pub, GCRYSEXP_FMT_CANON, (char*)pub_canon, n);
+    err = ksba_certreq_set_public_key (cr, pub_canon); if (err) goto leave;
+  }
   err = make_extensions (cr, add_eku, add_policy, add_ku); if (err) goto leave;
 
   sr = 0;
@@ -125,9 +131,10 @@ build_with_ext (const char *subj, gcry_sexp_t pub, gcry_sexp_t sec,
   }
 
   {
-    size_t n = gcry_sexp_canon_len (sec, 0, NULL, NULL);
-    if (!n) { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
-    err = gcry_sexp_sscan (&s_skey, NULL, sec, n); if (err) goto leave;
+    size_t n = gcry_sexp_sprint (sec, GCRYSEXP_FMT_CANON, NULL, 0);
+    sec_canon = xmalloc (n);
+    gcry_sexp_sprint (sec, GCRYSEXP_FMT_CANON, (char*)sec_canon, n);
+    err = gcry_sexp_sscan (&s_skey, NULL, sec_canon, n); if (err) goto leave;
   }
 
   err = gcry_pk_sign (&s_sig, s_hash, s_skey); if (err) goto leave;
@@ -175,6 +182,8 @@ leave:
   gcry_sexp_release (s_skey);
   ksba_certreq_release (cr);
   ksba_writer_release (wrt);
+  xfree (pub_canon);
+  xfree (sec_canon);
   ksba_free (buf);
   return err;
 }
@@ -183,6 +192,7 @@ int main(void)
 {
   gpg_error_t err;
   gcry_sexp_t key, pub, sec;
+  unsigned char *pub_canon = NULL, *sec_canon = NULL;
   gcry_check_version (NULL);
   gcry_control (GCRYCTL_DISABLE_SECMEM, 0);
   gcry_control (GCRYCTL_INITIALIZATION_FINISHED, 0);
@@ -195,10 +205,21 @@ int main(void)
   fail_if_err (err);
   pub = gcry_sexp_find_token (key, "public-key", 0);
   sec = gcry_sexp_find_token (key, "private-key", 0);
+  /* Convert keys to canonical S-expression strings as required by
+     ksba_pkcs10_build_gost.  */
+  {
+    size_t n;
+    n = gcry_sexp_sprint (pub, GCRYSEXP_FMT_CANON, NULL, 0);
+    pub_canon = xmalloc (n);
+    gcry_sexp_sprint (pub, GCRYSEXP_FMT_CANON, (char*)pub_canon, n);
+    n = gcry_sexp_sprint (sec, GCRYSEXP_FMT_CANON, NULL, 0);
+    sec_canon = xmalloc (n);
+    gcry_sexp_sprint (sec, GCRYSEXP_FMT_CANON, (char*)sec_canon, n);
+  }
 
   /* 1. Build simple request */
   unsigned char *der=NULL; size_t derlen=0;
-  err = ksba_pkcs10_build_gost ("CN=Test", pub, sec,
+  err = ksba_pkcs10_build_gost ("CN=Test", pub_canon, sec_canon,
                                  "1.2.643.2.2.3", "1.2.643.2.2.9",
                                  &der, &derlen);
   fail_if_err (err);
@@ -239,6 +260,8 @@ int main(void)
 
   gcry_sexp_release (pub);
   gcry_sexp_release (sec);
+  xfree (pub_canon);
+  xfree (sec_canon);
   gcry_sexp_release (key);
   return 0;
 }
