@@ -4,6 +4,7 @@
 #include <gcrypt.h>
 
 #include "util.h"
+#include "convert.h"
 #include "keyinfo.h"
 #include "cert.h"
 #include "ksba.h"
@@ -105,6 +106,44 @@ check_policy_tk26 (ksba_cert_t cert)
 
   return ok? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
 }
+
+/* Check that CERT has only TK-26 policies (1.2.643.*) and at least one
+   such policy is present.  */
+static gpg_error_t
+check_policy_tk26_only (ksba_cert_t cert)
+{
+  gpg_error_t err;
+  char *pols = NULL;
+  int any = 0;
+
+  err = ksba_cert_get_cert_policies (cert, &pols);
+  if (gpg_err_code (err) == GPG_ERR_NO_DATA)
+    return gpg_error (GPG_ERR_NO_POLICY_MATCH);
+  if (err)
+    return err;
+
+  for (char *line = pols; line && *line; )
+    {
+      char *end = strchr (line, '\n');
+      if (!end)
+        end = line + strlen (line);
+      if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
+        any = 1;
+      else
+        {
+          xfree (pols);
+          return gpg_error (GPG_ERR_NO_POLICY_MATCH);
+        }
+      if (*end)
+        line = end + 1;
+      else
+        break;
+    }
+  xfree (pols);
+
+  return any? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
+}
+
 
 struct hash_collect_state
 {
@@ -410,4 +449,73 @@ leave:
   gcry_sexp_release (s_hash);
   gcry_sexp_release (s_pkey);
   return err;
+}
+
+
+/* Verify a certificate chain for GOST according to TK-26.  CHAIN must
+   contain CHAINLEN certificates starting with the root or an issuer
+   certificate and ending with the end-entity certificate.  If
+   CHECK_ENC is true the end-entity certificate is also required to
+   allow encryption.  */
+gpg_error_t
+_ksba_check_cert_chain_tk26 (const ksba_cert_t *chain, size_t chainlen,
+                             int check_enc)
+{
+  gpg_error_t err;
+  ksba_isotime_t now, t1;
+
+  if (!chain || !chainlen)
+    return gpg_error (GPG_ERR_INV_VALUE);
+
+  _ksba_current_time (now);
+
+  for (size_t i = 0; i < chainlen; i++)
+    {
+      ksba_cert_t cert = chain[i];
+
+      /* Check validity period.  */
+      if (!ksba_cert_get_validity (cert, 0, t1) && *t1
+          && _ksba_cmp_time (now, t1) < 0)
+        return gpg_error (GPG_ERR_CERT_TOO_YOUNG);
+      if (!ksba_cert_get_validity (cert, 1, t1) && *t1
+          && _ksba_cmp_time (now, t1) > 0)
+        return gpg_error (GPG_ERR_CERT_EXPIRED);
+
+      /* Check policy.  */
+      err = check_policy_tk26_only (cert);
+      if (err)
+        return err;
+
+      /* Check algorithm.  */
+      if (strncmp (ksba_cert_get_digest_algo (cert), "1.2.643", 7))
+        return gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO);
+
+      /* Key Usage checks depending on level.  */
+      if (i == chainlen - 1)
+        {
+          err = check_key_usage_for_gost (cert, KSBA_KEYUSAGE_DIGITAL_SIGNATURE);
+          if (!err && check_enc)
+            err = check_key_usage_for_gost (cert, KSBA_KEYUSAGE_KEY_ENCIPHERMENT);
+        }
+      else if (i == 0)
+        err = check_key_usage_for_gost (cert, KSBA_KEYUSAGE_KEY_CERT_SIGN);
+      else
+        {
+          err = check_key_usage_for_gost (cert, KSBA_KEYUSAGE_CRL_SIGN);
+          if (!err)
+            err = check_key_usage_for_gost (cert, KSBA_KEYUSAGE_DIGITAL_SIGNATURE);
+        }
+      if (err)
+        return err;
+    }
+
+  /* Verify the signature chain.  */
+  for (size_t i = 1; i < chainlen; i++)
+    {
+      err = _ksba_check_cert_sig (chain[i-1], chain[i]);
+      if (err)
+        return err;
+    }
+
+  return 0;
 }
