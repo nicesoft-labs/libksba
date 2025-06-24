@@ -265,6 +265,94 @@ parse_eku_for_gost (const unsigned char *der, size_t derlen)
   return ok? 0 : gpg_error (GPG_ERR_WRONG_KEY_USAGE);
 }
 
+/* Parse the value of a keyUsage extension and verify that either the
+   digitalSignature or the keyEncipherment bit is set.  Returns the
+   usage flags in R_USAGE on success.  */
+static gpg_error_t
+parse_key_usage_for_gost (const unsigned char *der, size_t derlen,
+                          unsigned int *r_usage)
+{
+  gpg_error_t err;
+  struct tag_info ti;
+  unsigned int flags = 0;
+  int unused, full, mask, i;
+  unsigned char bits;
+
+  if (r_usage)
+    *r_usage = 0;
+
+  err = _ksba_ber_parse_tl (&der, &derlen, &ti);
+  if (err)
+    return err;
+  if (!(ti.class == CLASS_UNIVERSAL && ti.tag == TYPE_BIT_STRING
+        && !ti.is_constructed))
+    return gpg_error (GPG_ERR_INV_OBJ);
+  if (ti.ndef)
+    return gpg_error (GPG_ERR_NOT_DER_ENCODED);
+  if (!ti.length || ti.length > derlen)
+    return gpg_error (GPG_ERR_BAD_BER);
+
+  unused = *der++;
+  derlen--; ti.length--;
+  if ((!ti.length && unused) || unused/8 > ti.length)
+    return gpg_error (GPG_ERR_BAD_BER);
+
+  full = ti.length - (unused + 7)/8;
+  mask = 0;
+  for (i = 1; unused; i <<= 1, unused--)
+    mask |= i;
+
+  if (ti.length)
+    {
+      bits = *der++; derlen--; ti.length--;
+      if (full)
+        full--;
+      else
+        {
+          bits &= ~mask;
+          mask = 0;
+        }
+      if (bits & 0x80)
+        flags |= KSBA_KEYUSAGE_DIGITAL_SIGNATURE;
+      if (bits & 0x40)
+        flags |= KSBA_KEYUSAGE_NON_REPUDIATION;
+      if (bits & 0x20)
+        flags |= KSBA_KEYUSAGE_KEY_ENCIPHERMENT;
+      if (bits & 0x10)
+        flags |= KSBA_KEYUSAGE_DATA_ENCIPHERMENT;
+      if (bits & 0x08)
+        flags |= KSBA_KEYUSAGE_KEY_AGREEMENT;
+      if (bits & 0x04)
+        flags |= KSBA_KEYUSAGE_KEY_CERT_SIGN;
+      if (bits & 0x02)
+        flags |= KSBA_KEYUSAGE_CRL_SIGN;
+      if (bits & 0x01)
+        flags |= KSBA_KEYUSAGE_ENCIPHER_ONLY;
+    }
+
+  if (ti.length)
+    {
+      bits = *der++; derlen--; ti.length--;
+      if (full)
+        full--;
+      else
+        {
+          bits &= mask;
+          mask = ~0;
+        }
+      if (bits & 0x80)
+        flags |= KSBA_KEYUSAGE_DECIPHER_ONLY;
+    }
+
+  if (r_usage)
+    *r_usage = flags;
+
+  if (!(flags & (KSBA_KEYUSAGE_DIGITAL_SIGNATURE|KSBA_KEYUSAGE_KEY_ENCIPHERMENT)))
+    return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+
+  return 0;
+}
+
 
 struct hash_collect_state
 {
@@ -654,6 +742,15 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   size_t cri_len;
   const unsigned char *spki;
   size_t spki_len;
+  const unsigned char *cri_start;
+  size_t cri_tlen;
+  gcry_md_hd_t md;
+  gcry_sexp_t s_sig = NULL, s_hash = NULL, s_pkey = NULL;
+  int algo, digestlen, gost_key, i;
+  unsigned char *digest;
+  char algo_name[17];
+  size_t nread;
+  unsigned int ku_flags = 0;
 
   if (!der || !derlen)
     return gpg_error (GPG_ERR_INV_VALUE);
@@ -670,6 +767,8 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
     return err;
   if (ti.ndef || ti.length > len)
     return gpg_error (GPG_ERR_BAD_BER);
+  cri_start = ptr - ti.nhdr;
+  cri_tlen  = ti.nhdr + ti.length;
   cri = ptr;
   cri_len = ti.length;
   ptr += cri_len;
@@ -854,18 +953,115 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
                   if (err)
                     return err;
                 }
+              else if (!strcmp (oid, "2.5.29.15"))
+                {
+                  err = parse_key_usage_for_gost (e_ptr, ti.length, &ku_flags);
+                  xfree (oid);
+                  if (err)
+                    return err;
+                }
               else
-                xfree (oid);
+                {
+                  xfree (oid);
+                  return gpg_error (GPG_ERR_INV_OBJ);
+                }
             }
         }
       else
-        xfree (oid);
+        {
+          xfree (oid);
+          return gpg_error (GPG_ERR_INV_OBJ);
+        }
     }
 
   if (!have_policy)
     return gpg_error (GPG_ERR_NO_POLICY_MATCH);
   if (!have_eku)
     return gpg_error (GPG_ERR_WRONG_KEY_USAGE); 
-  
+    return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+  if (!ku_flags)
+    return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+
+  /* Verify the signature over CertificationRequestInfo.  */
+  err = _ksba_keyinfo_to_sexp (spki, spki_len, &s_pkey);
+  if (err)
+    goto leave;
+
+  err = _ksba_parse_algorithm_identifier (ptr, len, &nread, &oid);
+  if (err)
+    goto leave;
+  algo = gcry_md_map_name (oid);
+  if (!algo)
+    { err = gpg_error (GPG_ERR_DIGEST_ALGO); goto leave; }
+  gost_key = !strncmp (oid, "1.2.643", 7);
+
+  err = _ksba_sigval_to_sexp (ptr, len, &s_sig);
+  if (err)
+    goto leave;
+
+  err = gcry_md_open (&md, algo, 0);
+  if (err)
+    goto leave;
+  gcry_md_write (md, cri_start, cri_tlen);
+  gcry_md_final (md);
+  digestlen = gcry_md_get_algo_dlen (algo);
+  digest = gcry_md_read (md, algo);
+  if (gost_key)
+    {
+      unsigned char *h = digest;
+      unsigned char c;
+      int len_xy;
+      unsigned short arch = 1;
+      len_xy = *((unsigned char *)&arch) == 0 ? 0 : digestlen;
+      for (i=0; i < (len_xy/2); i++)
+        {
+          c = h[i];
+          h[i] = h[len_xy - i - 1];
+          h[len_xy - i - 1] = c;
+        }
+    }
+  {
+    const char *s = gcry_md_algo_name (algo);
+    for (i=0; *s && i < (int)sizeof algo_name - 1; s++, i++)
+      algo_name[i] = tolower (*s);
+    algo_name[i] = 0;
+  }
+
+  if (!gost_key)
+    err = gcry_sexp_build (&s_hash, NULL,
+                           "(data(flags pkcs1)(hash %s %b))",
+                           algo_name, digestlen, digest);
+  else
+    err = gcry_sexp_build (&s_hash, NULL,
+                           "(data(flags gost)(value %b))",
+                           digestlen, digest);
+  if (err)
+    {
+      gcry_md_close (md);
+      goto leave;
+    }
+
+  err = gcry_pk_verify (s_sig, s_hash, s_pkey);
+  if (err && gost_key)
+    {
+      gcry_sexp_t tmp = s_sig;
+      if (!gost_adjust_signature (&tmp))
+        {
+          s_sig = tmp;
+          err = gcry_pk_verify (s_sig, s_hash, s_pkey);
+        }
+      else
+        gcry_sexp_release (tmp);
+    }
+
+  gcry_md_close (md);
+
+leave:
+  xfree (oid);
+  gcry_sexp_release (s_sig);
+  gcry_sexp_release (s_hash);
+  gcry_sexp_release (s_pkey);
+  if (err)
+    return err;  
   return 0;
 }
