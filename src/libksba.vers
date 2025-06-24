@@ -114,6 +114,7 @@ KSBA_0.9 {
     ksba_der_add_tag; ksba_der_add_end;
     ksba_der_builder_get;
     ksba_check_cert_sig;
+    ksba_check_cert_chain_tk26;
     ksba_crl_check_signature_gost;
     ksba_ocsp_check_signature_gost;
 
