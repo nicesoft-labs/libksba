@@ -752,6 +752,8 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   unsigned char *digest;
   char algo_name[17];
   size_t nread;
+  ksba_sexp_t pkey_str = NULL, sig_str = NULL;
+  size_t sexp_len;
   unsigned int ku_flags = 0;
   const unsigned char *attrs;
   size_t attrs_len;
