@@ -213,4 +213,5 @@ EXPORTS
       ksba_crl_check_signature_gost    @167
       ksba_ocsp_check_signature_gost   @168
       ksba_pkcs10_check_gost           @169
+      ksba_pkcs10_build_gost          @170
 
