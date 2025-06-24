@@ -395,6 +395,8 @@ _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
   ksba_sexp_t p;
   size_t n;
   gcry_sexp_t s_sig = NULL, s_hash = NULL, s_pkey = NULL;
+  ksba_sexp_t pkey_str = NULL, sig_str = NULL;
+  size_t sexp_len;
   const char *s;
   char algo_name[17];
   int digestlen;
@@ -751,6 +753,15 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   char algo_name[17];
   size_t nread;
   unsigned int ku_flags = 0;
+  const unsigned char *attrs;
+  size_t attrs_len;
+  int have_policy = 0;
+  int have_eku = 0;
+  const unsigned char *set_ptr = NULL, *ext_ptr = NULL;
+  const unsigned char *extensions = NULL, *e_ptr = NULL;
+  size_t set_len = 0, ext_len = 0, extensions_len = 0, e_len = 0;
+  int crit = 0;
+  
 
   if (!der || !derlen)
     return gpg_error (GPG_ERR_INV_VALUE);
@@ -832,10 +843,8 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   if (ti.length > cri_len)
     return gpg_error (GPG_ERR_BAD_BER);
 
-  const unsigned char *attrs = cri;
-  size_t attrs_len = ti.length;
-  int have_policy = 0;
-  int have_eku = 0;
+  attrs = cri;
+  attrs_len = ti.length;
 
   while (attrs_len)
     {
@@ -872,14 +881,14 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
           xfree (oid);
           return gpg_error (GPG_ERR_BAD_BER);
         }
-      const unsigned char *set_ptr = attr_ptr;
-      size_t set_len = ti.length;
+      set_ptr = attr_ptr;
+      set_len = ti.length;
 
       if (!strcmp (oid, "1.2.840.113549.1.9.14"))
         {
           /* extensionRequest */
-          const unsigned char *ext_ptr = set_ptr;
-          size_t ext_len = set_len;
+          ext_ptr = set_ptr;
+          ext_len = set_len;
 
           err = parse_sequence (&ext_ptr, &ext_len, &ti);
           if (err)
@@ -892,13 +901,12 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
               xfree (oid);
               return gpg_error (GPG_ERR_BAD_BER);
             }
-          const unsigned char *extensions = ext_ptr;
-          size_t extensions_len = ti.length;
+          extensions = ext_ptr;
+          extensions_len = ti.length;
 
           while (extensions_len)
             {
-              const unsigned char *e_ptr;
-              size_t e_len;
+              /* Parse one extension.  */
 
               err = parse_sequence (&extensions, &extensions_len, &ti);
               if (err)
@@ -919,7 +927,7 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
               err = parse_object_id_into_str (&e_ptr, &e_len, &oid);
               if (err)
                 return err;
-              int crit = 0;
+              crit = 0;
               err = parse_optional_boolean (&e_ptr, &e_len, &crit);
               if (err)
                 {
@@ -978,12 +986,18 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
     return gpg_error (GPG_ERR_NO_POLICY_MATCH);
   if (!have_eku)
     return gpg_error (GPG_ERR_WRONG_KEY_USAGE); 
-    return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
   if (!ku_flags)
     return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
 
   /* Verify the signature over CertificationRequestInfo.  */
-  err = _ksba_keyinfo_to_sexp (spki, spki_len, &s_pkey);
+  err = _ksba_keyinfo_to_sexp (spki, spki_len, &pkey_str);
+  if (err)
+    goto leave;
+  sexp_len = gcry_sexp_canon_len (pkey_str, 0, NULL, NULL);
+  if (!sexp_len)
+    { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+  err = gcry_sexp_sscan (&s_pkey, NULL, pkey_str, sexp_len);
+  xfree (pkey_str); pkey_str = NULL;
   if (err)
     goto leave;
 
@@ -995,7 +1009,14 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
     { err = gpg_error (GPG_ERR_DIGEST_ALGO); goto leave; }
   gost_key = !strncmp (oid, "1.2.643", 7);
 
-  err = _ksba_sigval_to_sexp (ptr, len, &s_sig);
+  err = _ksba_sigval_to_sexp (ptr, len, &sig_str);
+  if (err)
+    goto leave;
+  sexp_len = gcry_sexp_canon_len (sig_str, 0, NULL, NULL);
+  if (!sexp_len)
+    { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
+  err = gcry_sexp_sscan (&s_sig, NULL, sig_str, sexp_len);
+  xfree (sig_str); sig_str = NULL;
   if (err)
     goto leave;
 
@@ -1058,6 +1079,8 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
 
 leave:
   xfree (oid);
+  xfree (pkey_str);
+  xfree (sig_str);
   gcry_sexp_release (s_sig);
   gcry_sexp_release (s_hash);
   gcry_sexp_release (s_pkey);
