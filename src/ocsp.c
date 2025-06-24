@@ -33,6 +33,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <gcrypt.h>
+#include <ctype.h>
 
 #include "util.h"
 
@@ -43,10 +45,133 @@
 #include "ber-help.h"
 #include "ocsp.h"
 
+/* Reverse byte order helper.  */
+static void
+invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
+{
+  for (size_t i = 0; i < len; i++)
+    dst[i] = src[len - 1 - i];
+}
+
+/* Adjust a GOST signature by inverting R and S values.  */
+static gpg_error_t
+gost_adjust_signature (gcry_sexp_t *sig)
+{
+  gcry_sexp_t r = NULL, s = NULL;
+  const unsigned char *rbuf, *sbuf;
+  size_t rlen, slen;
+  unsigned char *rrev = NULL, *srev = NULL;
+  gpg_error_t err = 0;
+
+  if (!sig || !*sig)
+    return gpg_error (GPG_ERR_INV_VALUE);
+
+  r = gcry_sexp_find_token (*sig, "r", 0);
+  s = gcry_sexp_find_token (*sig, "s", 0);
+  if (!r || !s)
+    {
+      err = gpg_error (GPG_ERR_INV_SEXP);
+      goto leave;
+    }
+
+  rbuf = gcry_sexp_nth_buffer (r, 1, &rlen);
+  sbuf = gcry_sexp_nth_buffer (s, 1, &slen);
+  if (!rbuf || !sbuf || rlen != slen)
+    {
+      err = gpg_error (GPG_ERR_INV_SEXP);
+      goto leave;
+    }
+
+  rrev = gcry_xmalloc (rlen);
+  srev = gcry_xmalloc (slen);
+  invert_bytes (rrev, rbuf, rlen);
+  invert_bytes (srev, sbuf, slen);
+
+  gcry_sexp_release (*sig);
+  err = gcry_sexp_build (sig, NULL,
+                         "(sig-val (gost (r %b)(s %b)))",
+                         (int)rlen, rrev, (int)slen, srev);
+
+leave:
+  gcry_sexp_release (r);
+  gcry_sexp_release (s);
+  gcry_free (rrev);
+  gcry_free (srev);
+  return err;
+}
+
 
 static const char oidstr_sha1[] = "1.3.14.3.2.26";
 static const char oidstr_ocsp_basic[] = "1.3.6.1.5.5.7.48.1.1";
 static const char oidstr_ocsp_nonce[] = "1.3.6.1.5.5.7.48.1.2";
+
+/* Check for the presence of a TK-26 policy in CERT.  */
+static gpg_error_t
+check_policy_tk26 (ksba_cert_t cert)
+{
+  gpg_error_t err;
+  char *pols = NULL;
+  int ok = 0;
+
+  err = ksba_cert_get_cert_policies (cert, &pols);
+  if (gpg_err_code (err) == GPG_ERR_NO_DATA)
+    return 0;
+  if (err)
+    return err;
+
+  for (char *line = pols; line && *line; )
+    {
+      char *end = strchr (line, '\n');
+      if (!end)
+        end = line + strlen (line);
+      if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
+        {
+          ok = 1;
+          break;
+        }
+      if (*end)
+        line = end + 1;
+      else
+        break;
+    }
+  xfree (pols);
+
+  return ok? 0 : gpg_error (GPG_ERR_NO_POLICY_MATCH);
+}
+
+/* Verify that CERT carries the OCSP signing extended key usage.  */
+static gpg_error_t
+check_ocsp_signing_eku (ksba_cert_t cert)
+{
+  gpg_error_t err;
+  char *usages = NULL;
+  int ok = 0;
+
+  err = ksba_cert_get_ext_key_usages (cert, &usages);
+  if (gpg_err_code (err) == GPG_ERR_NO_DATA)
+    return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+  if (err)
+    return err;
+
+  for (char *line = usages; line && *line; )
+    {
+      char *end = strchr (line, '\n');
+      if (!end)
+        end = line + strlen (line);
+      if (end - line == 19 && !memcmp (line, "1.3.6.1.5.5.7.3.9", 19))
+        {
+          ok = 1;
+          break;
+        }
+      if (*end)
+        line = end + 1;
+      else
+        break;
+    }
+  xfree (usages);
+
+  return ok? 0 : gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+}
 
 
 #if 0
@@ -112,6 +237,7 @@ ksba_ocsp_release (ksba_ocsp_t ocsp)
   if (!ocsp)
     return;
   xfree (ocsp->digest_oid);
+  xfree (ocsp->sig_oid);
   xfree (ocsp->request_buffer);
   for (; (ri=ocsp->requestlist); ri = ocsp->requestlist )
     {
@@ -1347,6 +1473,14 @@ parse_response (ksba_ocsp_t ocsp, const unsigned char *msg, size_t msglen)
   err = parse_sequence (&msg, &msglen, &ti);
   if (err)
     return err;
+  xfree (ocsp->sig_oid); ocsp->sig_oid = NULL;
+  {
+    size_t nread;
+    err = _ksba_parse_algorithm_identifier (s, ti.nhdr + ti.length,
+                                            &nread, &ocsp->sig_oid);
+    if (err)
+      return err;
+  }
   parse_skip (&msg, &msglen, &ti);
   err= _ksba_ber_parse_tl (&msg, &msglen, &ti);
   if (err)
@@ -1719,4 +1853,139 @@ ksba_ocsp_get_extension (ksba_ocsp_t ocsp, ksba_cert_t cert, int idx,
     *r_derlen = ex->len;
 
   return 0;
+}
+
+/* Verify an OCSP response signed with a GOST key.  MSG and MSGLEN must
+   be the same values as used with ksba_ocsp_parse_response.  */
+gpg_error_t
+ksba_ocsp_check_signature_gost (ksba_ocsp_t ocsp,
+                                const unsigned char *msg, size_t msglen,
+                                ksba_cert_t cert)
+{
+  gpg_error_t err;
+  int algo, i;
+  gcry_md_hd_t md;
+  ksba_sexp_t p;
+  size_t n;
+  gcry_sexp_t s_sig = NULL, s_hash = NULL, s_pkey = NULL;
+  const char *s;
+  char algo_name[17];
+  int digestlen;
+  unsigned char *digest;
+
+  if (!ocsp || !msg || !cert)
+    return gpg_error (GPG_ERR_INV_VALUE);
+  if (!ocsp->sigval || !ocsp->sig_oid || !ocsp->hash_length)
+    return gpg_error (GPG_ERR_MISSING_ACTION);
+  if (strncmp (ocsp->sig_oid, "1.2.643", 7))
+    return gpg_error (GPG_ERR_WRONG_PUBKEY_ALGO);
+
+  err = _ksba_check_key_usage_for_gost (cert, KSBA_KEYUSAGE_DIGITAL_SIGNATURE);
+  if (!err)
+    err = check_ocsp_signing_eku (cert);
+  if (!err)
+    err = check_policy_tk26 (cert);
+  if (err)
+    return err;
+
+  algo = gcry_md_map_name (ocsp->sig_oid);
+  if (!algo)
+    return gpg_error (GPG_ERR_DIGEST_ALGO);
+
+  err = gcry_md_open (&md, algo, 0);
+  if (err)
+    return err;
+  if (ocsp->hash_offset + ocsp->hash_length > msglen)
+    {
+      gcry_md_close (md);
+      return gpg_error (GPG_ERR_BAD_BER);
+    }
+  gcry_md_write (md, msg + ocsp->hash_offset, ocsp->hash_length);
+  gcry_md_final (md);
+
+  digestlen = gcry_md_get_algo_dlen (algo);
+  digest = gcry_md_read (md, algo);
+
+  {
+    unsigned char *h = digest;
+    unsigned char c;
+    int len_xy;
+    unsigned short arch = 1;
+    len_xy = *((unsigned char *)&arch) == 0 ? 0 : digestlen;
+    for (i = 0; i < (len_xy/2); i++)
+      {
+        c = h[i];
+        h[i] = h[len_xy - i - 1];
+        h[len_xy - i - 1] = c;
+      }
+  }
+
+  s = gcry_md_algo_name (algo);
+  for (i = 0; *s && i < (int)sizeof algo_name - 1; s++, i++)
+    algo_name[i] = tolower (*s);
+  algo_name[i] = 0;
+
+  err = gcry_sexp_build (&s_hash, NULL,
+                         "(data(flags gost)(value %b))",
+                         (int)digestlen, digest);
+  if (err)
+    {
+      gcry_md_close (md);
+      return err;
+    }
+
+  p = ocsp->sigval;
+  n = gcry_sexp_canon_len (p, 0, NULL, NULL);
+  if (!n)
+    {
+      gcry_md_close (md);
+      gcry_sexp_release (s_hash);
+      return gpg_error (GPG_ERR_INV_SEXP);
+    }
+  err = gcry_sexp_sscan (&s_sig, NULL, p, n);
+  if (err)
+    {
+      gcry_md_close (md);
+      gcry_sexp_release (s_hash);
+      return err;
+    }
+
+  p = ksba_cert_get_public_key (cert);
+  n = gcry_sexp_canon_len (p, 0, NULL, NULL);
+  if (!n)
+    {
+      gcry_md_close (md);
+      ksba_free (p);
+      gcry_sexp_release (s_sig);
+      gcry_sexp_release (s_hash);
+      return gpg_error (GPG_ERR_INV_SEXP);
+    }
+  err = gcry_sexp_sscan (&s_pkey, NULL, p, n);
+  ksba_free (p);
+  if (err)
+    {
+      gcry_md_close (md);
+      gcry_sexp_release (s_sig);
+      gcry_sexp_release (s_hash);
+      return err;
+    }
+
+  err = gcry_pk_verify (s_sig, s_hash, s_pkey);
+  if (err)
+    {
+      gcry_sexp_t tmp = s_sig;
+      if (!gost_adjust_signature (&tmp))
+        {
+          s_sig = tmp;
+          err = gcry_pk_verify (s_sig, s_hash, s_pkey);
+        }
+      else
+        gcry_sexp_release (tmp);
+    }
+
+  gcry_md_close (md);
+  gcry_sexp_release (s_sig);
+  gcry_sexp_release (s_hash);
+  gcry_sexp_release (s_pkey);
+  return err;
 }
