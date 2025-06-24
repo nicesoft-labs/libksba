@@ -846,6 +846,20 @@ ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   return _ksba_pkcs10_check_gost (der, derlen);
 }
 
+gpg_error_t
+ksba_pkcs10_build_gost (const char *subject,
+                        ksba_const_sexp_t pubkey,
+                        ksba_const_sexp_t seckey,
+                        const char *sig_oid,
+                        const char *hash_oid,
+                        unsigned char **r_der,
+                        size_t *r_derlen)
+{
+  return _ksba_pkcs10_build_gost (subject, pubkey, seckey,
+                                  sig_oid, hash_oid, r_der, r_derlen);
+}
+
+
 /*-- certreq.c --*/
 gpg_error_t
 ksba_certreq_new (ksba_certreq_t *r_cr)
