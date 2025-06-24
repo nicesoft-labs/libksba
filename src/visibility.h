@@ -162,6 +162,7 @@
 #define ksba_ocsp_get_extension            _ksba_ocsp_get_extension
 #define ksba_ocsp_check_signature_gost     _ksba_ocsp_check_signature_gost
 #define ksba_pkcs10_check_gost             _ksba_pkcs10_check_gost
+#define ksba_pkcs10_build_gost             _ksba_pkcs10_build_gost
 
 
 
@@ -378,6 +379,8 @@ int ksba_asn_delete_structure (void *dummy);
 #undef ksba_ocsp_get_extension
 #undef ksba_ocsp_check_signature_gost
 #undef ksba_pkcs10_check_gost
+#undef ksba_pkcs10_build_gost
+
 
 
 #undef ksba_oid_from_str
@@ -560,6 +563,8 @@ MARK_VISIBLE (ksba_ocsp_set_sig_val)
 MARK_VISIBLE (ksba_ocsp_get_extension)
 MARK_VISIBLE (ksba_ocsp_check_signature_gost)
 MARK_VISIBLE (ksba_pkcs10_check_gost)
+MARK_VISIBLE (ksba_pkcs10_build_gost)
+
 
 
 
