@@ -79,7 +79,8 @@ struct ocsp_reqitem_s {
 struct ksba_ocsp_s {
   char *digest_oid;        /* The OID of the digest algorithm to be
                               used for a request. */
-
+  char *sig_oid;           /* OID of the signature algorithm used in a
+                              response.  */
   struct ocsp_reqitem_s *requestlist;  /* The list of request items. */
 
   size_t noncelen;          /* 0 if no nonce was sent. */
