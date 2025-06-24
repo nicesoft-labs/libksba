@@ -131,6 +131,10 @@ check_policy_tk26_only (ksba_cert_t cert)
         end = line + strlen (line);
       if (end - line >= 7 && !memcmp (line, "1.2.643", 7))
         any = 1;
+      else if (end - line == 13 && !memcmp (line, "2.5.29.32.0", 11))
+        {
+          /* Ignore anyPolicy.  */
+        }
       else
         {
           xfree (pols);
@@ -197,6 +201,10 @@ parse_policies_tk26_only (const unsigned char *der, size_t derlen)
           return gpg_error (GPG_ERR_ENOMEM);
         if (!strncmp (oid, "1.2.643", 7))
           any = 1;
+        else if (!strcmp (oid, "2.5.29.32.0"))
+          {
+            /* Ignore anyPolicy.  */
+          }
         else
           {
             xfree (oid);
