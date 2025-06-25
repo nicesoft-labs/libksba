@@ -1,0 +1,8 @@
+[req]
+distinguished_name = req_distinguished_name
+prompt = no
+[req_distinguished_name]
+CN = test_gost_eku_sign
+[v3_req]
+keyUsage = digitalSignature
+extendedKeyUsage = codeSigning, emailProtection
