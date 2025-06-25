@@ -1,0 +1,12 @@
+[req]
+distinguished_name = req_distinguished_name
+prompt = no
+
+[req_distinguished_name]
+CN = leaf_gost_tk26
+
+[v3_req]
+keyUsage = digitalSignature
+extendedKeyUsage = codeSigning
+basicConstraints = critical,CA:false
+certificatePolicies = 1.2.643.100.111.1
