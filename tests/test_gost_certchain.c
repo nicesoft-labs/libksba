@@ -47,8 +47,16 @@ int main(void)
   chain[0] = read_cert ("samples/authority.crt");
   chain[1] = read_cert ("samples/user_gost.der");
   err = ksba_check_cert_chain_tk26 (chain, 2, 0);
-  if (!err)
-    fail ("expected failure for wrong algo");
+  if (gpg_err_code (err) != GPG_ERR_WRONG_PUBKEY_ALGO)
+    fail ("expected WRONG_PUBKEY_ALGO");
+  ksba_cert_release (chain[0]);
+  ksba_cert_release (chain[1]);
+
+  chain[0] = read_cert ("samples/ca_gost.der");
+  chain[1] = read_cert ("samples/gost_certs/test_without_eku.der");
+  err = ksba_check_cert_chain_tk26 (chain, 2, 0);
+  if (gpg_err_code (err) != GPG_ERR_NO_POLICY_MATCH)
+    fail ("expected NO_POLICY_MATCH");
   ksba_cert_release (chain[0]);
   ksba_cert_release (chain[1]);
 
