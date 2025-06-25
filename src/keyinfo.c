@@ -2047,15 +2047,15 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
       err = ksba_cert_get_ext_key_usages (cert, &ext_usages);
       if (gpg_err_code (err) == GPG_ERR_NO_DATA)
         {
-          gpgrt_log_error ("missing Extended Key Usage in certificate\n");
-          err = gpg_error (GPG_ERR_WRONG_KEY_USAGE);
-          goto leave;
+          /* Absence of an EKU extension is not considered an error.  */
+          err = 0;
         }
-      if (err)
+      else if (err)
         goto leave;
 
-      for (char *line = ext_usages; line && *line; )
-        {
+      if (ext_usages)
+        for (char *line = ext_usages; line && *line; )
+          {
           char *end = strchr (line, '\n');
           size_t toklen;
           if (!end)
@@ -2086,7 +2086,7 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
           else
             break;
         }
-      if (!eku_ok)
+      if (ext_usages && !eku_ok)
         {
           gpgrt_log_error ("extended key usage %s not found\n", eku);
           err = gpg_error (GPG_ERR_WRONG_KEY_USAGE);
