@@ -2026,8 +2026,7 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
       if (!(usage & (KSBA_KEYUSAGE_DIGITAL_SIGNATURE |
                      KSBA_KEYUSAGE_NON_REPUDIATION)))
         return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
-        eku = "1.3.6.1.5.5.7.3.3";
-
+      eku = "1.3.6.1.5.5.7.3.3";
     }
   else if (usage_flag == KSBA_KEYUSAGE_KEY_ENCIPHERMENT
            || usage_flag == KSBA_KEYUSAGE_DATA_ENCIPHERMENT)
@@ -2057,13 +2056,29 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
       for (char *line = ext_usages; line && *line; )
         {
           char *end = strchr (line, '\n');
+          size_t toklen;
           if (!end)
             end = line + strlen (line);
-          if ((size_t)(end - line) == strlen (eku)
-              && !memcmp (line, eku, strlen (eku)))
+          toklen = end - line;
+          {
+            char *colon = memchr (line, ':', toklen);
+            if (colon)
+              toklen = colon - line;
+          }
+          if (toklen == strlen (eku) && !memcmp (line, eku, toklen))
             {
               eku_ok = 1;
               break;
+            }
+          if (usage_flag == KSBA_KEYUSAGE_DIGITAL_SIGNATURE
+              || usage_flag == KSBA_KEYUSAGE_NON_REPUDIATION)
+            {
+              if (toklen == strlen ("2.5.29.37.0")
+                  && !memcmp (line, "2.5.29.37.0", toklen))
+                {
+                  eku_ok = 1;
+                  break;
+                }
             }
           if (*end)
             line = end + 1;
