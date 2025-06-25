@@ -17,7 +17,6 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <unistd.h>
 
 /*-- sha1.c --*/
 void sha1_hash_buffer (char *outbuf, const char *buffer, size_t length);
@@ -74,14 +73,6 @@ prepend_srcdir (const char *fname)
   strcpy (result, srcdir);
   strcat (result, "/");
   strcat (result, fname);
-    {
-      char *tmp = result;
-      result = xmalloc (strlen (srcdir) + 7 + strlen (fname) + 1);
-      strcpy (result, srcdir);
-      strcat (result, "/tests/");
-      strcat (result, fname);
-      xfree (tmp);
-    }
   return result;
 }
 
