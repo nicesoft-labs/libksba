@@ -1069,6 +1069,7 @@ parse_single_response (ksba_ocsp_t ocsp,
   size_t n;
   char *oid;
   ksba_isotime_t this_update, next_update, revocation_time;
+  ksba_isotime_t now;
   int look_for_request;
   const unsigned char *name_hash;
   const unsigned char *key_hash;
@@ -1251,6 +1252,10 @@ parse_single_response (ksba_ocsp_t ocsp,
   if (request_item)
     _ksba_copy_time (request_item->this_update, this_update);
 
+  _ksba_current_time (now);
+  if (*this_update && _ksba_cmp_time (now, this_update) < 0)
+    return gpg_error (GPG_ERR_TIME_CONFLICT);
+
   /* nextUpdate is optional. */
   if (*data >= endptr)
     return 0;
@@ -1267,6 +1272,8 @@ parse_single_response (ksba_ocsp_t ocsp,
         return err;
       if (request_item)
         _ksba_copy_time (request_item->next_update, next_update);
+      if (*next_update && _ksba_cmp_time (now, next_update) > 0)
+        return gpg_error (GPG_ERR_CERT_EXPIRED);
     }
   else if (ti.class == CLASS_CONTEXT && ti.tag == 1  && ti.is_constructed)
     { /* Undo that read. */
