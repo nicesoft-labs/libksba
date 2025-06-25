@@ -2034,6 +2034,7 @@ _ksba_check_key_usage_for_gost (const ksba_cert_t cert, unsigned usage_flag)
       if (!(usage & (KSBA_KEYUSAGE_KEY_ENCIPHERMENT |
                      KSBA_KEYUSAGE_DATA_ENCIPHERMENT)))
         return gpg_error (GPG_ERR_WRONG_KEY_USAGE);
+       eku = "1.3.6.1.5.5.7.3.9";
     }
   else if (usage_flag == KSBA_KEYUSAGE_CRL_SIGN)
     {
