@@ -185,15 +185,15 @@ main (void)
     }
   ksba_cert_release (chain[0]);
 
-  /* 3. Missing EKU check.  */
+  /* 3. Missing EKU check (certificate lacks both EKU and policy).  */
   fname = prepend_srcdir ("samples/gost_certs2/test_without_eku.crt");
   chain[0] = read_cert (fname);
   xfree (fname);
   err = _ksba_check_cert_chain_tk26 (chain, 1, 0);
-  if (gpg_err_code (err) != GPG_ERR_WRONG_KEY_USAGE)
+  if (gpg_err_code (err) != GPG_ERR_NO_POLICY_MATCH)
     {
       fprintf (stderr, "test3: expected %d got %s (%d)\n",
-               GPG_ERR_WRONG_KEY_USAGE, gpg_strerror (err),
+               GPG_ERR_NO_POLICY_MATCH, gpg_strerror (err),
                gpg_err_code (err));
       ksba_cert_release (chain[0]);
       return 1;
