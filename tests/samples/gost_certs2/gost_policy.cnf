@@ -5,4 +5,5 @@ prompt = no
 CN = test_gost_policy
 [v3_req]
 keyUsage = digitalSignature
+extendedKeyUsage = anyExtendedKeyUsage
 certificatePolicies = 1.2.643.100.111.1
