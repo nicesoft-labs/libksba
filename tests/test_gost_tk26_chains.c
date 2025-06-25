@@ -157,7 +157,7 @@ main (void)
   char *fname;
 
   /* 1. Successful TK-26 chain check.  */
-  fname = prepend_srcdir ("samples/gost_certs2/test_gost_policy.crt");
+  fname = prepend_srcdir ("samples/gost_certs/test_gost_policy.crt");
   chain[0] = read_cert (fname);
   xfree (fname);
   err = _ksba_check_cert_chain_tk26 (chain, 1, 0);
