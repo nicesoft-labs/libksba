@@ -64,6 +64,8 @@
 #define ksba_cert_is_ca                    _ksba_cert_is_ca
 #define ksba_cert_new                      _ksba_cert_new
 #define ksba_cert_read_der                 _ksba_cert_read_der
+#define ksba_cert_read_pem                 _ksba_cert_read_pem
+#define ksba_cert_init_from_pem            _ksba_cert_init_from_pem
 #define ksba_cert_ref                      _ksba_cert_ref
 #define ksba_cert_release                  _ksba_cert_release
 #define ksba_cert_get_authority_info_access \
@@ -282,6 +284,8 @@ int ksba_asn_delete_structure (void *dummy);
 #undef ksba_cert_is_ca
 #undef ksba_cert_new
 #undef ksba_cert_read_der
+#undef ksba_cert_read_pem
+#undef ksba_cert_init_from_pem
 #undef ksba_cert_ref
 #undef ksba_cert_release
 #undef ksba_cert_get_authority_info_access
@@ -466,6 +470,8 @@ MARK_VISIBLE (ksba_cert_init_from_mem)
 MARK_VISIBLE (ksba_cert_is_ca)
 MARK_VISIBLE (ksba_cert_new)
 MARK_VISIBLE (ksba_cert_read_der)
+MARK_VISIBLE (ksba_cert_read_pem)
+MARK_VISIBLE (ksba_cert_init_from_pem)
 MARK_VISIBLE (ksba_cert_ref)
 MARK_VISIBLE (ksba_cert_release)
 MARK_VISIBLE (ksba_cert_get_authority_info_access)
