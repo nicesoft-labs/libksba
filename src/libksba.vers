@@ -45,7 +45,8 @@ KSBA_0.9 {
     ksba_cert_get_public_key; ksba_cert_get_serial; ksba_cert_get_sig_val;
     ksba_cert_get_subject; ksba_cert_get_validity; ksba_cert_hash;
     ksba_cert_init_from_mem; ksba_cert_is_ca; ksba_cert_new;
-    ksba_cert_read_der; ksba_cert_ref; ksba_cert_release;
+    ksba_cert_read_der; ksba_cert_read_pem; ksba_cert_init_from_pem;
+    ksba_cert_ref; ksba_cert_release;
     ksba_cert_get_authority_info_access; ksba_cert_get_subject_info_access;
     ksba_cert_get_subj_key_id;
     ksba_cert_set_user_data; ksba_cert_get_user_data;
