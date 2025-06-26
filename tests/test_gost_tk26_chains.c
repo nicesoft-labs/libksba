@@ -151,15 +151,19 @@ read_cert (const char *fname)
 }
 
 /* Read a DER or PEM encoded CRL and parse it.  */
+/* Read a DER or PEM encoded CRL and return it without parsing so that
+   the caller may later run ksba_crl_parse on the attached reader.
+   The reader and the underlying buffer are optionally returned for
+   cleanup by the caller.  */
 static ksba_crl_t
-read_crl (const char *fname)
+read_crl (const char *fname, ksba_reader_t *r_reader, unsigned char **r_buf,
+          size_t *r_len)
 {
   ksba_reader_t r;
   ksba_crl_t crl;
   gpg_error_t err;
   unsigned char *buf = NULL;
   size_t buflen = 0;
-  ksba_stop_reason_t stop;
 
   err = read_der (fname, &buf, &buflen);
   if (err)
@@ -176,13 +180,34 @@ read_crl (const char *fname)
   fail_if_err (err);
   err = ksba_crl_set_reader (crl, r);
   fail_if_err (err);
-
-  do
-    err = ksba_crl_parse (crl, &stop);
-  while (!err && stop != KSBA_SR_READY);
-  fail_if_err (err);
-  ksba_reader_release (r);
-  free (buf);
+  if (r_reader)
+    *r_reader = r;
+  else
+    ksba_reader_release (r);
+  if (r_buf)
+    *r_buf = buf;
+  else
+    buf = NULL;
+  if (r_len)
+    *r_len = buflen;
+   
+  /* Pre-parse the CRL so that algorithm information is available.  */
+  if (!err)
+    {
+      ksba_stop_reason_t stop;
+      do
+        err = ksba_crl_parse (crl, &stop);
+      while (!err && stop != KSBA_SR_READY);
+      if (err)
+        {
+          if (r_reader)
+            ksba_reader_release (r);
+          if (!r_buf && buf)
+            free (buf);
+          ksba_crl_release (crl);
+          return NULL;
+        }
+    }
 
   return crl;
 }
@@ -325,6 +350,7 @@ main (void)
   ksba_cert_t chain[1];
   gpg_error_t err;
   char *fname;
+  ksba_reader_t crlreader; unsigned char *crlbuf; size_t crlbuflen;
 
   /* 1. Successful TK-26 chain check.  */
   fname = prepend_srcdir ("samples/gost_certs/test_gost_policy.crt");
@@ -372,8 +398,9 @@ main (void)
 
   /* 4. Successful CRL signature check.  */
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_eku_crl.pem");
-  ksba_crl_t crl = read_crl (fname);
+  ksba_crl_t crl = read_crl (fname, &crlreader, &crlbuf, &crlbuflen);
   xfree (fname);
+  ksba_reader_set_mem (crlreader, crlbuf, crlbuflen);
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_eku_crl.crt");
   ksba_cert_t cert = read_cert (fname);
   xfree (fname);
@@ -387,12 +414,15 @@ main (void)
       return 0; /* skip remaining tests */
     }
   ksba_crl_release (crl);
+  ksba_reader_release (crlreader);
+  free (crlbuf);
   ksba_cert_release (cert);
 
   /* 5. Fail CRL signature due to missing TK-26 policy.  */
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_eku_crl.pem");
-  crl = read_crl (fname);
+  crl = read_crl (fname, &crlreader, &crlbuf, &crlbuflen);
   xfree (fname);
+  ksba_reader_set_mem (crlreader, crlbuf, crlbuflen);
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_no_policy.crt");
   cert = read_cert (fname);
   xfree (fname);
@@ -407,15 +437,18 @@ main (void)
       return 1;
     }
   ksba_crl_release (crl);
+  ksba_reader_release (crlreader);
+  free (crlbuf);
   ksba_cert_release (cert);
 
   /* 6. Fail CRL signature due to missing cRLSign key usage.  */
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_eku_crl.pem");
-  crl = read_crl (fname);
+  crl = read_crl (fname, &crlreader, &crlbuf, &crlbuflen);
   xfree (fname);
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_policy.crt");
   cert = read_cert (fname);
   xfree (fname);
+  ksba_reader_set_mem (crlreader, crlbuf, crlbuflen);
   err = ksba_crl_check_signature_gost (crl, cert);
   if (gpg_err_code (err) != GPG_ERR_WRONG_KEY_USAGE)
     {
@@ -427,6 +460,8 @@ main (void)
       return 1;
     }
   ksba_crl_release (crl);
+  ksba_reader_release (crlreader);
+  free (crlbuf);
   ksba_cert_release (cert);
 
   /* 7. Successful OCSP signature check.  */
