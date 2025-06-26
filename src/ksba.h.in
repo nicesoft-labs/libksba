@@ -299,6 +299,9 @@ gpg_error_t ksba_cert_get_user_data (ksba_cert_t cert, const char *key,
 gpg_error_t ksba_cert_read_der (ksba_cert_t cert, ksba_reader_t reader);
 gpg_error_t ksba_cert_init_from_mem (ksba_cert_t cert,
                                      const void *buffer, size_t length);
+gpg_error_t ksba_cert_read_pem (ksba_cert_t cert, ksba_reader_t reader);
+gpg_error_t ksba_cert_init_from_pem (ksba_cert_t cert,
+                                     const void *buffer, size_t length);
 const unsigned char *ksba_cert_get_image (ksba_cert_t cert, size_t *r_length);
 gpg_error_t ksba_cert_hash (ksba_cert_t cert,
                             int what,
