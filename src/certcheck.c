@@ -677,6 +677,22 @@ _ksba_crl_check_signature_gost (ksba_crl_t crl, ksba_cert_t issuer_cert)
           gcry_sexp_release (tmp);
           err = e2;
         }
+
+      if (err)
+        {
+          unsigned char *d2 = xtrymalloc (digestlen);
+          if (d2)
+            {
+              for (i = 0; i < digestlen; i++)
+                d2[i] = digest[digestlen - 1 - i];
+              gcry_sexp_release (s_hash);
+              if (!gcry_sexp_build (&s_hash, NULL,
+                                    "(data(flags gost)(value %b))",
+                                    (int)digestlen, d2))
+                err = gcry_pk_verify (s_sig, s_hash, s_pkey);
+              gcry_free (d2);
+            }
+        }
     }
 
   gcry_md_close (md);
