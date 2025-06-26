@@ -1,0 +1,16 @@
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir               = .
+certificate       = root_gost_tk26.crt
+private_key       = root_gost_tk26.key
+database          = index.txt
+serial            = serial.txt
+crlnumber         = crlnumber.txt
+default_md        = gost2012_256
+default_crl_days  = 30
+policy            = policy_match
+
+[ policy_match ]
+commonName = supplied
