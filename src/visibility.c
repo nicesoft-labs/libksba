@@ -143,12 +143,25 @@ ksba_cert_read_der (ksba_cert_t cert, ksba_reader_t reader)
   return _ksba_cert_read_der (cert, reader);
 }
 
+gpg_error_t
+ksba_cert_read_pem (ksba_cert_t cert, ksba_reader_t reader)
+{
+  return _ksba_cert_read_pem (cert, reader);
+}
+
 
 gpg_error_t
 ksba_cert_init_from_mem (ksba_cert_t cert,
                          const void *buffer, size_t length)
 {
   return _ksba_cert_init_from_mem (cert, buffer, length);
+}
+
+gpg_error_t
+ksba_cert_init_from_pem (ksba_cert_t cert,
+                         const void *buffer, size_t length)
+{
+  return _ksba_cert_init_from_pem (cert, buffer, length);
 }
 
 
