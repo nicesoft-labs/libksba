@@ -505,7 +505,7 @@ _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
   digestlen = gcry_md_get_algo_dlen (algo);
   digest = gcry_md_read (md, algo);
 
-  if (gost_key)
+  if (gost_key && algo != GCRY_MD_STRIBOG256 && algo != GCRY_MD_STRIBOG512)
     {
       unsigned char *h = digest;
       unsigned char c;
@@ -523,6 +523,10 @@ _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
   if (!gost_key)
     err = gcry_sexp_build (&s_hash, NULL,
                            "(data(flags pkcs1)(hash %s %b))",
+                           algo_name, (int)digestlen, digest);
+  else if (algo == GCRY_MD_STRIBOG256 || algo == GCRY_MD_STRIBOG512)
+    err = gcry_sexp_build (&s_hash, NULL,
+                           "(data(flags gost)(hash %s)(value %b))",
                            algo_name, (int)digestlen, digest);
   else
     err = gcry_sexp_build (&s_hash, NULL,
@@ -617,28 +621,34 @@ _ksba_crl_check_signature_gost (ksba_crl_t crl, ksba_cert_t issuer_cert)
   digestlen = gcry_md_get_algo_dlen (algo);
   digest = gcry_md_read (md, algo);
 
-  {
-    unsigned char *h = digest;
-    unsigned char c;
-    int len_xy;
-    unsigned short arch = 1;
-    len_xy = *((unsigned char *)&arch) == 0 ? 0 : digestlen;
-    for (i = 0; i < (len_xy/2); i++)
-      {
-        c = h[i];
-        h[i] = h[len_xy - i - 1];
-        h[len_xy - i - 1] = c;
-      }
-  }
+  if (algo != GCRY_MD_STRIBOG256 && algo != GCRY_MD_STRIBOG512)
+    {
+      unsigned char *h = digest;
+      unsigned char c;
+      int len_xy;
+      unsigned short arch = 1;
+      len_xy = *((unsigned char *)&arch) == 0 ? 0 : digestlen;
+      for (i = 0; i < (len_xy/2); i++)
+        {
+          c = h[i];
+          h[i] = h[len_xy - i - 1];
+          h[len_xy - i - 1] = c;
+        }
+    }
 
   s = gcry_md_algo_name (algo);
   for (i = 0; *s && i < (int)sizeof algo_name - 1; s++, i++)
     algo_name[i] = tolower (*s);
   algo_name[i] = 0;
 
-  err = gcry_sexp_build (&s_hash, NULL,
-                         "(data(flags gost)(value %b))",
-                         (int)digestlen, digest);
+  if (algo == GCRY_MD_STRIBOG256 || algo == GCRY_MD_STRIBOG512)
+    err = gcry_sexp_build (&s_hash, NULL,
+                           "(data(flags gost)(hash %s)(value %b))",
+                           algo_name, (int)digestlen, digest);
+  else
+    err = gcry_sexp_build (&s_hash, NULL,
+                           "(data(flags gost)(value %b))",
+                           (int)digestlen, digest);
   if (err)
     { gcry_md_close (md); goto leave; }
 
@@ -1077,7 +1087,7 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   gcry_md_final (md);
   digestlen = gcry_md_get_algo_dlen (algo);
   digest = gcry_md_read (md, algo);
-  if (gost_key)
+  if (gost_key && algo != GCRY_MD_STRIBOG256 && algo != GCRY_MD_STRIBOG512)
     {
       unsigned char *h = digest;
       unsigned char c;
@@ -1101,6 +1111,10 @@ _ksba_pkcs10_check_gost (const unsigned char *der, size_t derlen)
   if (!gost_key)
     err = gcry_sexp_build (&s_hash, NULL,
                            "(data(flags pkcs1)(hash %s %b))",
+                           algo_name, digestlen, digest);
+  else if (algo == GCRY_MD_STRIBOG256 || algo == GCRY_MD_STRIBOG512)
+    err = gcry_sexp_build (&s_hash, NULL,
+                           "(data(flags gost)(hash %s)(value %b))",
                            algo_name, digestlen, digest);
   else
     err = gcry_sexp_build (&s_hash, NULL,
