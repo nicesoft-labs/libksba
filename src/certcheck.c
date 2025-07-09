@@ -410,8 +410,6 @@ _ksba_check_cert_sig (ksba_cert_t issuer_cert, ksba_cert_t cert)
   ksba_sexp_t p;
   size_t n;
   gcry_sexp_t s_sig = NULL, s_hash = NULL, s_pkey = NULL;
-  ksba_sexp_t pkey_str = NULL, sig_str = NULL;
-  size_t sexp_len;
   const char *s;
   char algo_name[17];
   int digestlen;
