@@ -18,7 +18,9 @@
 static void
 invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
 {
-  for (size_t i = 0; i < len; i++)
+  size_t i;
+
+  for (i = 0; i < len; i++)
     dst[i] = src[len - 1 - i];
 }
 
@@ -165,6 +167,7 @@ main (int argc, char **argv)
   unsigned char *sig_val;
   int file_digest_len;
   unsigned char *file_digest_val;
+  size_t sig_len;
 
   if (argc == 3)
     {
@@ -260,12 +263,15 @@ main (int argc, char **argv)
   digest_len = gcry_md_get_algo_dlen (algo);
   if (algoid && !strncmp (algoid, "1.2.643", 7))
     {
-      for (int i=0; i < digest_len/2; i++)
-        {
-          unsigned char t = digest[i];
-          digest[i] = digest[digest_len-1-i];
-          digest[digest_len-1-i] = t;
-        }
+      {
+        int i;
+        for (i = 0; i < digest_len/2; i++)
+          {
+            unsigned char t = digest[i];
+            digest[i] = digest[digest_len-1-i];
+            digest[digest_len-1-i] = t;
+          }
+      }
       err = gcry_sexp_build (&s_hash, NULL,
                              "(data(flags gost)(value %b))",
                              digest_len, digest);
@@ -300,7 +306,7 @@ main (int argc, char **argv)
   sig_val = ksba_cms_get_sig_val (cms, 0);
   if (!sig_val)
     goto fail;
-  size_t sig_len = gcry_sexp_canon_len (sig_val, 0, NULL, NULL);
+  sig_len = gcry_sexp_canon_len (sig_val, 0, NULL, NULL);
   err = gcry_sexp_sscan (&s_sig, NULL, (const char*)sig_val, sig_len);
   ksba_free (sig_val);
   if (err)
