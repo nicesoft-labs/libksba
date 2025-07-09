@@ -60,7 +60,9 @@
 static void
 invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
 {
-  for (size_t i = 0; i < len; i++)
+  size_t i;
+
+  for (i = 0; i < len; i++)
     dst[i] = src[len - 1 - i];
 }
 /* Return true if ALGO specifies a GOST signature algorithm.  */
@@ -3408,6 +3410,7 @@ build_signed_data_attributes (ksba_cms_t cms)
       AsnNode n;
       unsigned char *image;
       size_t imagelen;
+      int is_gost;
 
       for (i = 0; i < attridx; i++)
         {
@@ -3424,12 +3427,12 @@ build_signed_data_attributes (ksba_cms_t cms)
 	}
 
       if (!certlist->cert || !digestlist->oid)
-	{
-	  err = gpg_error (GPG_ERR_BUG);
-	  goto leave;
-	}
+        {
+          err = gpg_error (GPG_ERR_BUG);
+          goto leave;
+        }
 
-      int is_gost = is_gost_oid (digestlist->oid);
+      is_gost = is_gost_oid (digestlist->oid);
 
       /* For GOST put content-type first.  */
       if (is_gost)
