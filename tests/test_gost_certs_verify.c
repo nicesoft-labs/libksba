@@ -29,20 +29,23 @@ base64_decode (const char *in, size_t inlen,
   size_t n = 0;
   int val = 0, valb = -8;
   buf = xmalloc (size);
-  for (size_t i=0; i < inlen; i++)
-    {
-      int d = b64val (in[i]);
-      if (d >= 0)
-        {
-          val = (val<<6) + d;
-          valb += 6;
-          if (valb >= 0)
-            {
-              buf[n++] = (val >> valb) & 0xFF;
-              valb -= 8;
-            }
-        }
-    }
+  {
+    size_t i;
+    for (i = 0; i < inlen; i++)
+      {
+        int d = b64val (in[i]);
+        if (d >= 0)
+          {
+            val = (val<<6) + d;
+            valb += 6;
+            if (valb >= 0)
+              {
+                buf[n++] = (val >> valb) & 0xFF;
+                valb -= 8;
+              }
+          }
+      }
+  }
   *out = buf;
   *outlen = n;
   return 0;
@@ -64,6 +67,8 @@ verify_self_sig (ksba_cert_t cert)
   int digestlen;
   unsigned char *digest;
   int gost_key;
+  int i;
+
 
   algoid = ksba_cert_get_digest_algo (cert);
   algo = gcry_md_map_name (algoid);
@@ -73,7 +78,6 @@ verify_self_sig (ksba_cert_t cert)
   gost_key = algoid && !memcmp (algoid, "1.2.643", 7);
 
   s = gcry_md_algo_name (algo);
-  int i;
   for (i = 0; *s && i < (int)sizeof algo_name - 1; s++, i++)
     algo_name[i] = tolower (*s);
   algo_name[i] = 0;
@@ -218,14 +222,18 @@ read_der (const char *fname, unsigned char **r_buf, size_t *r_len)
       if (!accum)
         return gpg_error (GPG_ERR_BAD_DATA);
       accum[acclen] = 0;
-      gpg_error_t err = base64_decode (accum, acclen, r_buf, r_len);
-      free (accum);
-      return err;
+      {
+        gpg_error_t err = base64_decode (accum, acclen, r_buf, r_len);
+        free (accum);
+        return err;
+      }
     }
   else
     {
+      long len;
+
       fseek (fp, 0, SEEK_END);
-      long len = ftell (fp);
+      len = ftell (fp);
       rewind (fp);
       *r_buf = xmalloc (len);
       if (fread (*r_buf, 1, len, fp) != (size_t)len)
@@ -264,17 +272,27 @@ main (void)
   int errors = 0;
   struct sample *s;
   gpg_error_t err;
+  char *dir;
+  char *crtpath;
+  char *keypath;
+  unsigned char *der = NULL;
+  size_t derlen = 0;
+  unsigned char *keybuf = NULL;
+  size_t keylen = 0;
+  ksba_reader_t reader;
+  ksba_cert_t cert;
+  char *list = NULL;
 
   for (s = samples; s->name; s++)
     {
-      char *dir = prepend_srcdir ("samples/gost_certs/");
-      char *crtpath = xmalloc (strlen (dir) + strlen (s->name) + 5);
+      dir = prepend_srcdir ("samples/gost_certs/");
+      crtpath = xmalloc (strlen (dir) + strlen (s->name) + 5);
       sprintf (crtpath, "%s%s.crt", dir, s->name);
-      char *keypath = xmalloc (strlen (dir) + strlen (s->name) + 5);
+      keypath = xmalloc (strlen (dir) + strlen (s->name) + 5);
       sprintf (keypath, "%s%s.key", dir, s->name);
 
-      unsigned char *der = NULL; size_t derlen = 0;
-      unsigned char *keybuf = NULL; size_t keylen = 0;
+      der = NULL; derlen = 0;
+      keybuf = NULL; keylen = 0;
       err = read_der (crtpath, &der, &derlen);
       if (err)
         {
@@ -289,8 +307,6 @@ main (void)
         }
       free (keybuf);
 
-      ksba_reader_t reader;
-      ksba_cert_t cert;
       err = ksba_reader_new (&reader);
       fail_if_err (err);
       err = ksba_reader_set_mem (reader, der, derlen);
@@ -308,7 +324,6 @@ main (void)
       free (der);
 
       /* Check EKU */
-      char *list = NULL;
       err = ksba_cert_get_ext_key_usages (cert, &list);
       if (s->expected_eku)
         {
