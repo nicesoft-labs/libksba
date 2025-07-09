@@ -29,20 +29,23 @@ base64_decode (const char *in, size_t inlen,
   size_t n = 0;
   int val = 0, valb = -8;
   buf = xmalloc (size);
-  for (size_t i=0; i < inlen; i++)
-    {
-      int d = b64val (in[i]);
-      if (d >= 0)
-        {
-          val = (val<<6) + d;
-          valb += 6;
-          if (valb >= 0)
-            {
-              buf[n++] = (val >> valb) & 0xFF;
-              valb -= 8;
-            }
-        }
-    }
+  {
+    size_t i;
+    for (i = 0; i < inlen; i++)
+      {
+        int d = b64val (in[i]);
+        if (d >= 0)
+          {
+            val = (val<<6) + d;
+            valb += 6;
+            if (valb >= 0)
+              {
+                buf[n++] = (val >> valb) & 0xFF;
+                valb -= 8;
+              }
+          }
+      }
+  }
   *out = buf;
   *outlen = n;
   return 0;
@@ -99,14 +102,18 @@ read_der (const char *fname, unsigned char **r_buf, size_t *r_len)
       if (!accum)
         return gpg_error (GPG_ERR_BAD_DATA);
       accum[acclen] = 0;
-      gpg_error_t err = base64_decode (accum, acclen, r_buf, r_len);
-      free (accum);
-      return err;
+      {
+        gpg_error_t err = base64_decode (accum, acclen, r_buf, r_len);
+        free (accum);
+        return err;
+      }
     }
   else
     {
+      long len;
+
       fseek (fp, 0, SEEK_END);
-      long len = ftell (fp);
+      len = ftell (fp);
       rewind (fp);
       *r_buf = xmalloc (len);
       if (fread (*r_buf, 1, len, fp) != (size_t)len)
@@ -351,6 +358,12 @@ main (void)
   gpg_error_t err;
   char *fname;
   ksba_reader_t crlreader; unsigned char *crlbuf; size_t crlbuflen;
+  ksba_crl_t crl;
+  ksba_cert_t cert;
+  unsigned char *ocspbuf = NULL; size_t ocspbuflen = 0;
+  ksba_ocsp_t ocsp;
+  ksba_ocsp_response_status_t status;
+  ksba_cert_t chain3[3];
 
   /* 1. Successful TK-26 chain check.  */
   fname = prepend_srcdir ("samples/gost_certs/test_gost_policy.crt");
@@ -398,11 +411,11 @@ main (void)
 
   /* 4. Successful CRL signature check.  */
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_eku_crl.pem");
-  ksba_crl_t crl = read_crl (fname, &crlreader, &crlbuf, &crlbuflen);
+  crl = read_crl (fname, &crlreader, &crlbuf, &crlbuflen);
   xfree (fname);
   ksba_reader_set_mem (crlreader, crlbuf, crlbuflen);
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_eku_crl.crt");
-  ksba_cert_t cert = read_cert (fname);
+  cert = read_cert (fname);
   xfree (fname);
   err = ksba_crl_check_signature_gost (crl, cert);
   if (err)
@@ -466,13 +479,11 @@ main (void)
 
   /* 7. Successful OCSP signature check.  */
   fname = prepend_srcdir ("samples/gost_certs2/ocsp_resp.pem");
-  unsigned char *ocspbuf = NULL; size_t ocspbuflen = 0;
+  ocspbuf = NULL; ocspbuflen = 0;
   err = read_der (fname, &ocspbuf, &ocspbuflen);
   xfree (fname);
   if (err)
     return 1;
-  ksba_ocsp_t ocsp;
-  ksba_ocsp_response_status_t status;
   err = ksba_ocsp_new (&ocsp);
   fail_if_err (err);
   err = ksba_ocsp_parse_response (ocsp, ocspbuf, ocspbuflen, &status);
@@ -560,7 +571,6 @@ main (void)
   free (ocspbuf);
 
   /* 11. Successful three level chain.  */
-  ksba_cert_t chain3[3];
   fname = prepend_srcdir ("samples/gost_certs2/root_gost_tk26.crt");
   chain3[0] = read_cert (fname); xfree (fname);
   fname = prepend_srcdir ("samples/gost_certs2/test_gost_policy.crt");
@@ -572,12 +582,18 @@ main (void)
     {
       fprintf (stderr, "test11: expected %d got %s (%d)\n", 0,
                gpg_strerror (err), gpg_err_code (err));
-      for (int i=0; i < 3; i++)
-        ksba_cert_release (chain3[i]);
+      {
+        int i;
+        for (i = 0; i < 3; i++)
+          ksba_cert_release (chain3[i]);
+      }
       return 1;
     }
-  for (int i=0; i < 3; i++)
-    ksba_cert_release (chain3[i]);
+  {
+    int i;
+    for (i = 0; i < 3; i++)
+      ksba_cert_release (chain3[i]);
+  }
 
   /* 12. Fail chain due to missing policy in intermediate.  */
   fname = prepend_srcdir ("samples/gost_certs2/root_gost_tk26.crt");
@@ -592,12 +608,18 @@ main (void)
       fprintf (stderr, "test12: expected %d got %s (%d)\n",
                GPG_ERR_NO_POLICY_MATCH, gpg_strerror (err),
                gpg_err_code (err));
-      for (int i=0; i < 3; i++)
-        ksba_cert_release (chain3[i]);
+      {
+        int i;
+        for (i = 0; i < 3; i++)
+          ksba_cert_release (chain3[i]);
+      }
       return 1;
     }
-  for (int i=0; i < 3; i++)
-    ksba_cert_release (chain3[i]);
+  {
+    int i;
+    for (i = 0; i < 3; i++)
+      ksba_cert_release (chain3[i]);
+  }
 
   return 0;
 }
