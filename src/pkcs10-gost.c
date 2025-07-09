@@ -10,7 +10,9 @@
 static void
 invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
 {
-  for (size_t i = 0; i < len; i++)
+  size_t i;
+
+  for (i = 0; i < len; i++)
     dst[i] = src[len - 1 - i];
 }
 
@@ -86,12 +88,15 @@ _ksba_pkcs10_build_gost (const char *subject,
   {
     size_t dlen = gcry_md_get_algo_dlen (algo);
     unsigned char *digest = gcry_md_read (md, algo);
-    for (size_t i=0; i < dlen/2; i++)
-      {
-        unsigned char tmp = digest[i];
-        digest[i] = digest[dlen-1-i];
-        digest[dlen-1-i] = tmp;
-      }
+    {
+      size_t i;
+      for (i = 0; i < dlen/2; i++)
+        {
+          unsigned char tmp = digest[i];
+          digest[i] = digest[dlen-1-i];
+          digest[dlen-1-i] = tmp;
+        }
+    }
     err = gcry_sexp_build (&s_hash, NULL,
                            "(data(flags gost)(value %b))",
                            (int)dlen, digest);
