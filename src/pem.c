@@ -28,20 +28,23 @@ base64_decode (const char *in, size_t inlen,
   int val = 0, valb = -8;
 
   buf = xmalloc (size);
-  for (size_t i = 0; i < inlen; i++)
-    {
-      int d = b64val (in[i]);
-      if (d >= 0)
-        {
-          val = (val << 6) + d;
-          valb += 6;
-          if (valb >= 0)
-            {
-              buf[n++] = (val >> valb) & 0xFF;
-              valb -= 8;
-            }
-        }
-    }
+  {
+    size_t i;
+    for (i = 0; i < inlen; i++)
+      {
+        int d = b64val (in[i]);
+        if (d >= 0)
+          {
+            val = (val << 6) + d;
+            valb += 6;
+            if (valb >= 0)
+              {
+                buf[n++] = (val >> valb) & 0xFF;
+                valb -= 8;
+              }
+          }
+      }
+  }
   *out = buf;
   *outlen = n;
   return 0;
@@ -57,6 +60,8 @@ pem_to_der (const char *buffer, size_t length,
   int inside = 0;
   char *accum = NULL;
   size_t acclen = 0, accsize = 0;
+  gpg_error_t err;
+
 
   while (p < end)
     {
@@ -94,7 +99,7 @@ pem_to_der (const char *buffer, size_t length,
   if (!accum)
     return gpg_error (GPG_ERR_BAD_DATA);
   accum[acclen] = 0;
-  gpg_error_t err = base64_decode (accum, acclen, r_der, r_derlen);
+  err = base64_decode (accum, acclen, r_der, r_derlen);
   xfree (accum);
   return err;
 }
@@ -108,6 +113,9 @@ ksba_cert_read_pem (ksba_cert_t cert, ksba_reader_t reader)
   char *data = NULL;
   size_t datalen = 0, datasize = 0;
   size_t nread;
+  unsigned char *der = NULL;
+  size_t derlen = 0;
+  ksba_reader_t memr;
 
   if (!cert || !reader)
     return gpg_error (GPG_ERR_INV_VALUE);
@@ -134,14 +142,11 @@ ksba_cert_read_pem (ksba_cert_t cert, ksba_reader_t reader)
         break;
     }
 
-  unsigned char *der = NULL;
-  size_t derlen = 0;
   err = pem_to_der (data, datalen, &der, &derlen);
   xfree (data);
   if (err)
     return err;
 
-  ksba_reader_t memr;
   err = ksba_reader_new (&memr);
   if (err)
     {
