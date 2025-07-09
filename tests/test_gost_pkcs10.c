@@ -123,7 +123,15 @@ build_with_ext (const char *subj, gcry_sexp_t pub, gcry_sexp_t sec,
   {
     size_t dlen = gcry_md_get_algo_dlen (algo);
     unsigned char *digest = gcry_md_read (md, algo);
-    for (size_t i=0; i<dlen/2; i++) { unsigned char t=digest[i]; digest[i]=digest[dlen-1-i]; digest[dlen-1-i]=t; }
+    {
+      size_t i;
+      for (i = 0; i < dlen/2; i++)
+        {
+          unsigned char t = digest[i];
+          digest[i] = digest[dlen-1-i];
+          digest[dlen-1-i] = t;
+        }
+    }
     err = gcry_sexp_build (&s_hash, NULL,
                            "(data(flags gost)(value %b))",
                            (int)dlen, digest);
@@ -149,8 +157,13 @@ build_with_ext (const char *subj, gcry_sexp_t pub, gcry_sexp_t sec,
       sbuf = gcry_sexp_nth_buffer (s, 1, &slen);
       if (!rbuf || !sbuf || rlen!=slen) { err = gpg_error (GPG_ERR_INV_SEXP); goto leave; }
       rrev = gcry_xmalloc (rlen); srev = gcry_xmalloc (slen);
-      for (size_t i=0;i<rlen;i++) rrev[i]=rbuf[rlen-1-i];
-      for (size_t i=0;i<slen;i++) srev[i]=sbuf[slen-1-i];
+      {
+        size_t i;
+        for (i = 0; i < rlen; i++)
+          rrev[i] = rbuf[rlen-1-i];
+        for (i = 0; i < slen; i++)
+          srev[i] = sbuf[slen-1-i];
+      }
       gcry_sexp_release (s_sig); s_sig=NULL;
       err = gcry_sexp_build (&s_sig, NULL,
                              "(sig-val (1.2.643.2.2.3 (r %b)(s %b)))",
