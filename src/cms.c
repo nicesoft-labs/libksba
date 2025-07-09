@@ -1173,8 +1173,6 @@ ksba_cms_get_message_digest (ksba_cms_t cms, int idx,
                              char **r_digest, size_t *r_digest_len)
 {
   AsnNode nsiginfo, n;
-  AsnNode seq_ct = NULL;
-  AsnNode seq_md = NULL;
   struct signer_info_s *si;
 
   if (!cms || !r_digest || !r_digest_len)
