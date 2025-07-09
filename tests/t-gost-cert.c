@@ -19,7 +19,9 @@
 static void
 invert_bytes (unsigned char *dst, const unsigned char *src, size_t len)
 {
-  for (size_t i = 0; i < len; i++)
+  size_t i;
+
+  for (i = 0; i < len; i++)
     dst[i] = src[len - 1 - i];
 }
 
